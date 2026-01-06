@@ -15,7 +15,7 @@ DATABASE_PATH = "files.db"
 
 # OpenAI API Key
 OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")
-OPENAI_MODEL = os.getenv("OPENAI_MODEL", "gpt-3.5-turbo")
+OPENAI_MODEL = os.getenv("OPENAI_MODEL", "gpt-4o")
 
 # Tạo thư mục nếu chưa tồn tại
 JD_DIRECTORY.mkdir(exist_ok=True)
