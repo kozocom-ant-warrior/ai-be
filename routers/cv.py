@@ -2,6 +2,7 @@
 from pathlib import Path
 from typing import List
 from fastapi import APIRouter, File, UploadFile, HTTPException, status
+from fastapi.responses import Response
 from config import CV_DIRECTORY
 from database import save_file_to_database, get_file_by_id, get_all_files, delete_file_from_database
 from models import FileResponse, FileListResponse
@@ -151,16 +152,16 @@ async def list_cv_files(limit: int = 100, offset: int = 0):
     )
 
 
-@router.get("/files/{file_id}", response_model=FileResponse)
-async def get_cv_file(file_id: int):
+@router.get("/view/{file_id}")
+async def view_cv_file(file_id: int):
     """
-    Lấy thông tin chi tiết của một CV file theo ID
+    Xem file CV trực tiếp trên trình duyệt theo ID
     
     Args:
-        file_id: ID của file
+        file_id: ID của file CV
     
     Returns:
-        FileResponse: Thông tin file
+        Response: File binary với headers để hiển thị trực tiếp trong browser (inline)
     """
     file_info = get_file_by_id(file_id)
     
@@ -170,7 +171,41 @@ async def get_cv_file(file_id: int):
             detail=f"Không tìm thấy CV file với ID: {file_id}"
         )
     
-    return FileResponse(**file_info)
+    file_path = Path(file_info["file_path"])
+    
+    if not file_path.exists():
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"File không tồn tại trên hệ thống: {file_path}"
+        )
+    
+    # Xác định content type dựa trên extension
+    content_type = file_info.get("content_type")
+    if not content_type:
+        file_extension = file_path.suffix.lower()
+        content_type_map = {
+            ".pdf": "application/pdf",
+            ".docx": "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+            ".doc": "application/msword"
+        }
+        content_type = content_type_map.get(file_extension, "application/octet-stream")
+    
+    # Đọc file content
+    with open(file_path, "rb") as f:
+        file_content = f.read()
+    
+    # Set headers để hiển thị inline (không download)
+    # Quan trọng: chỉ set Content-Disposition: inline, không set attachment
+    headers = {
+        "Content-Type": content_type,
+        "Content-Disposition": "inline"
+    }
+    
+    return Response(
+        content=file_content,
+        media_type=content_type,
+        headers=headers
+    )
 
 
 @router.get("/files/{file_id}/content")
@@ -199,6 +234,28 @@ async def get_cv_content(file_id: int):
         "filename": file_info.get("original_filename"),
         "content": content if content else "Nội dung không có sẵn"
     }
+
+
+@router.get("/files/{file_id}", response_model=FileResponse)
+async def get_cv_file(file_id: int):
+    """
+    Lấy thông tin chi tiết của một CV file theo ID
+    
+    Args:
+        file_id: ID của file
+    
+    Returns:
+        FileResponse: Thông tin file
+    """
+    file_info = get_file_by_id(file_id)
+    
+    if not file_info or file_info.get("file_type") != "cv":
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"Không tìm thấy CV file với ID: {file_id}"
+        )
+    
+    return FileResponse(**file_info)
 
 
 @router.delete("/files/{file_id}", status_code=status.HTTP_204_NO_CONTENT)

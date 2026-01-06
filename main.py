@@ -57,6 +57,8 @@ async def root():
                 "upload": "POST /cv/upload (có thể upload nhiều file cùng lúc)",
                 "list": "GET /cv/files",
                 "get": "GET /cv/files/{file_id}",
+                "view": "GET /cv/view/{file_id} (xem/tải file CV)",
+                "content": "GET /cv/files/{file_id}/content (lấy nội dung text)",
                 "delete": "DELETE /cv/files/{file_id}"
             },
             "thinking": {
