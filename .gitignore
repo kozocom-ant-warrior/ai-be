@@ -66,6 +66,20 @@ db.sqlite3-journal
 *.db-journal
 files.db
 
+# User data - databases and uploaded files
+db/files.db
+db/chroma_db/
+cvs/
+jds/
+
+# macOS system files
+.DS_Store
+.AppleDouble
+.LSOverride
+
+# Test/export files
+test_export*.json
+
 # Flask stuff:
 instance/
 .webassets-cache

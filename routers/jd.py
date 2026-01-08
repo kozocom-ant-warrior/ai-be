@@ -1,10 +1,11 @@
 """Routes cho JD (Job Description) upload"""
 from pathlib import Path
+from datetime import datetime
 from fastapi import APIRouter, File, UploadFile, HTTPException, status
 from config import JD_DIRECTORY
-from database import save_file_to_database, get_file_by_id, get_all_files, delete_file_from_database
-from models import FileResponse, FileListResponse
-from utils import calculate_file_hash, generate_safe_filename
+from db.database import save_file_to_database, get_file_by_id, get_all_files, delete_file_from_database
+from models import FileResponse, FileListResponse, JDTextRequest
+from utils import calculate_file_hash, generate_safe_filename, extract_text_from_file
 
 router = APIRouter(prefix="/jd", tags=["JD"])
 
@@ -58,6 +59,23 @@ async def upload_jd(file: UploadFile = File(...)):
         file_size = file_path.stat().st_size
         file_hash = calculate_file_hash(file_path)
         
+        # Trích xuất nội dung text từ JD (CRITICAL: needed for embedding cache)
+        # Lưu RAW content - chỉ clean khi tạo embedding
+        content = None
+        try:
+            content = extract_text_from_file(file_path)
+            if content:
+                print(f"\n{'='*80}")
+                print(f"Nội dung JD (RAW): {original_filename}")
+                print(f"{'='*80}")
+                print(content[:500])  # Print first 500 chars
+                print(f"... (total {len(content)} chars)")
+                print(f"{'='*80}\n")
+            else:
+                print(f"Warning: Không thể trích xuất nội dung từ JD {original_filename}")
+        except Exception as e:
+            print(f"Warning: Không thể trích xuất nội dung từ JD {original_filename}: {str(e)}")
+        
         # Lưu vào database
         file_id = save_file_to_database(
             filename=file_path.name,
@@ -66,7 +84,8 @@ async def upload_jd(file: UploadFile = File(...)):
             file_size=file_size,
             file_hash=file_hash,
             content_type=file.content_type,
-            file_type="jd"
+            file_type="jd",
+            content=content
         )
         
         # Lấy thông tin file vừa lưu
@@ -82,6 +101,73 @@ async def upload_jd(file: UploadFile = File(...)):
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=f"Lỗi khi upload file: {str(e)}"
+        )
+
+
+@router.post("/text", response_model=FileResponse, status_code=status.HTTP_201_CREATED)
+async def upload_jd_text(request: JDTextRequest):
+    """
+    Upload JD dạng text (không cần file PDF)
+    
+    Args:
+        request: JDTextRequest chứa jd_text và job_title (optional)
+    
+    Returns:
+        FileResponse: Thông tin JD đã lưu
+    """
+    if not request.jd_text or not request.jd_text.strip():
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="JD text không được để trống"
+        )
+    
+    try:
+        # Lưu RAW text - chỉ clean khi tạo embedding
+        raw_content = request.jd_text.strip()
+        
+        # Tạo filename từ job_title hoặc timestamp
+        if request.job_title:
+            base_filename = request.job_title.replace(" ", "_").replace("/", "-")
+        else:
+            base_filename = "JD_Text"
+        
+        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+        filename = f"{base_filename}_{timestamp}.txt"
+        file_path = JD_DIRECTORY / filename
+        
+        # Lưu text vào file .txt
+        with open(file_path, "w", encoding="utf-8") as f:
+            f.write(raw_content)
+        
+        # Tính toán file size và hash
+        file_size = file_path.stat().st_size
+        file_hash = calculate_file_hash(file_path)
+        
+        # Lưu vào database với RAW content
+        file_id = save_file_to_database(
+            filename=filename,
+            original_filename=filename,
+            file_path=str(file_path),
+            file_size=file_size,
+            file_hash=file_hash,
+            content_type="text/plain",
+            file_type="jd",
+            content=raw_content
+        )
+        
+        # Lấy thông tin file vừa lưu
+        file_info = get_file_by_id(file_id)
+        
+        return FileResponse(**file_info)
+    
+    except Exception as e:
+        # Xóa file nếu có lỗi
+        if 'file_path' in locals() and file_path.exists():
+            file_path.unlink()
+        
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Lỗi khi lưu JD text: {str(e)}"
         )
 
 
