@@ -6,7 +6,7 @@ from typing import Optional
 from fastapi import FastAPI, Query
 from fastapi.middleware.cors import CORSMiddleware
 from config import CORS_ORIGINS
-from database import init_database, get_all_files
+from db.database import init_database, get_all_files
 from models import FileListResponse, FileResponse
 from routers import jd, cv, thinking
 

@@ -4,7 +4,7 @@ from typing import List
 from fastapi import APIRouter, File, UploadFile, HTTPException, status
 from fastapi.responses import Response
 from config import CV_DIRECTORY
-from database import save_file_to_database, get_file_by_id, get_all_files, delete_file_from_database
+from db.database import save_file_to_database, get_file_by_id, get_all_files, delete_file_from_database
 from models import FileResponse, FileListResponse
 from utils import calculate_file_hash, generate_safe_filename, extract_text_from_file
 
@@ -72,16 +72,17 @@ async def upload_cv(files: List[UploadFile] = File(...)):
             file_size = file_path.stat().st_size
             file_hash = calculate_file_hash(file_path)
             
-            # Trích xuất nội dung text từ CV
+            # Trích xuất nội dung text từ CV (lưu RAW - không clean)
             content = None
             try:
                 content = extract_text_from_file(file_path)
                 # In ra nội dung content CV để kiểm tra
                 if content:
                     print(f"\n{'='*80}")
-                    print(f"Nội dung CV: {original_filename}")
+                    print(f"Nội dung CV (RAW): {original_filename}")
                     print(f"{'='*80}")
-                    print(content)
+                    print(content[:500])  # Print first 500 chars
+                    print(f"... (total {len(content)} chars)")
                     print(f"{'='*80}\n")
                 else:
                     print(f"Warning: Không thể trích xuất nội dung từ file {original_filename}")

@@ -1,5 +1,6 @@
 """Utility functions"""
 import hashlib
+import re
 from pathlib import Path
 from typing import Optional
 import PyPDF2
@@ -66,4 +67,47 @@ def extract_text_from_file(file_path: Path) -> Optional[str]:
         return extract_text_from_docx(file_path)
     else:
         return None
+
+
+def clean_text_for_embedding(text: str) -> str:
+    """
+    Làm sạch text trước khi tạo embedding:
+    - Loại bỏ emoji
+    - Loại bỏ ký tự đặc biệt không phải chữ cái, số, khoảng trắng
+    - Chuẩn hóa khoảng trắng
+    
+    Args:
+        text: Text cần làm sạch
+        
+    Returns:
+        str: Text đã được làm sạch
+    """
+    if not text:
+        return ""
+    
+    # Remove emoji và ký tự Unicode đặc biệt
+    # Regex pattern để loại bỏ emoji
+    emoji_pattern = re.compile(
+        "["
+        u"\U0001F600-\U0001F64F"  # emoticons
+        u"\U0001F300-\U0001F5FF"  # symbols & pictographs
+        u"\U0001F680-\U0001F6FF"  # transport & map symbols
+        u"\U0001F1E0-\U0001F1FF"  # flags (iOS)
+        u"\U00002702-\U000027B0"
+        u"\U000024C2-\U0001F251"
+        "]+", 
+        flags=re.UNICODE
+    )
+    text = emoji_pattern.sub(r'', text)
+    
+    # Loại bỏ các ký tự control characters
+    text = re.sub(r'[\x00-\x1F\x7F-\x9F]', '', text)
+    
+    # Chuẩn hóa khoảng trắng: nhiều space/tab/newline → single space
+    text = re.sub(r'\s+', ' ', text)
+    
+    # Trim leading/trailing whitespace
+    text = text.strip()
+    
+    return text
 

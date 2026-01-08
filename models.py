@@ -21,3 +21,17 @@ class FileListResponse(BaseModel):
     total: int
     files: List[FileResponse]
 
+
+class JDTextRequest(BaseModel):
+    """Model cho JD dạng text input"""
+    jd_text: str
+    job_title: Optional[str] = None  # Tên vị trí tuyển dụng (optional)
+    
+    class Config:
+        json_schema_extra = {
+            "example": {
+                "jd_text": "We are looking for a Senior Frontend Developer with 5+ years experience in React...",
+                "job_title": "Senior Frontend Developer"
+            }
+        }
+
