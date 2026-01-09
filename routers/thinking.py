@@ -556,9 +556,26 @@ async def thinking_dump(request: Request):
         logger.info(f"Đã đọc được {len(cv_data_list)} CV")
         logger.info(f"Advanced options: {advanced_options}")
         
-        # Parse số lượng CV cần trả về từ response_requirement (TRƯỚC khi pre-filter)
+        # Lấy số lượng CV cần trả về từ payload (max_cv_count) hoặc parse từ response_requirement
         requested_cv_count = None
-        if response_requirement:
+        
+        # Ưu tiên lấy từ max_cv_count trong payload
+        max_cv_count_value = received_data.get("max_cv_count")
+        
+        if max_cv_count_value is not None and isinstance(max_cv_count_value, str):
+            try:
+                # Xử lý string, loại bỏ khoảng trắng
+                stripped = max_cv_count_value.strip()
+                if stripped:  # Chỉ convert nếu không rỗng
+                    requested_cv_count = int(stripped)
+                    logger.info(f"✅ Lấy max_cv_count từ payload: {requested_cv_count}")
+                else:
+                    logger.warning(f"max_cv_count là string rỗng, bỏ qua")
+            except (ValueError, TypeError) as e:
+                logger.warning(f"max_cv_count không hợp lệ: {max_cv_count_value} (error: {e}), sẽ thử parse từ response_requirement")
+        
+        # Fallback: Parse từ response_requirement nếu không có max_cv_count
+        if requested_cv_count is None and response_requirement:
             # Tìm pattern như "2 CV", "top 3", "3 ứng viên", etc.
             patterns = [
                 r'(?:lấy|trả về|cho|top)\s*(\d+)\s*(?:cv|ứng viên|candidate)',
