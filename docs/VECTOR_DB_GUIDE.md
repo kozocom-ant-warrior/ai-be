@@ -78,9 +78,9 @@ SQLite (database.py)          ChromaDB (vector_db.py)
 │  ├─ content                │  └─ metadata: {file_id, filename, hash}
 │  └─ file_type             
 └─ Metadata storage          └─ jd_embeddings collection
-                                ├─ doc_id: jd_{jd_id}_{hash}
+                                ├─ doc_id: {content_hash}
                                 ├─ embedding: [1536 floats]
-                                └─ metadata: {jd_id, filename, hash}
+                                └─ metadata: {filename, content_length, hash}
 ```
 
 **Workflow kết hợp:**

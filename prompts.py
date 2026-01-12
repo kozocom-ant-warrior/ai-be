@@ -158,19 +158,19 @@ def get_cv_matching_prompt(jd_text: str, response_requirement: str, cv_contents_
         advanced_options = {}
     
     # Kiểm tra các advanced options
-    detect_duplicate = advanced_options.get("detectDuplicate", False)
+    # detect_duplicate = advanced_options.get("detectDuplicate", False)
     cv_presentation = advanced_options.get("cvPresentation", False)
     interview_questions = advanced_options.get("interviewQuestions", False)
-    suggest_other_roles = advanced_options.get("suggestOtherRoles", False)
+    job_leveling = advanced_options.get("jobLeveling", False)
     cert_benefit = advanced_options.get("certBenefit", False)
     
     # Xây dựng các trường bổ sung dựa trên advanced options
     additional_fields = ""
     additional_requirements = ""
     
-    if detect_duplicate:
-        additional_fields += ',\n    "duplicate_warning": "Cảnh báo về trùng lặp/giả mạo (BẮT BUỘC: null nếu không có vấn đề, hoặc mô tả chi tiết bằng TIẾNG VIỆT nếu phát hiện trùng lặp/giả mạo)"'
-        additional_requirements += "\n7. BẮT BUỘC: Phân tích và cảnh báo về CV trùng lặp hoặc giả mạo (so sánh với các CV khác, kiểm tra thông tin không nhất quán). Field duplicate_warning PHẢI có giá trị 1 là trùng lặp, 0 là không trùng lặp. Tất cả mô tả PHẢI bằng tiếng Việt."
+    # if detect_duplicate:
+    #     additional_fields += ',\n    "duplicate_warning": "Cảnh báo về trùng lặp/giả mạo (BẮT BUỘC: null nếu không có vấn đề, hoặc mô tả chi tiết bằng TIẾNG VIỆT nếu phát hiện trùng lặp/giả mạo)"'
+    #     additional_requirements += "\n7. BẮT BUỘC: Phân tích và cảnh báo về CV trùng lặp hoặc giả mạo (so sánh với các CV khác, kiểm tra thông tin không nhất quán). Field duplicate_warning PHẢI có giá trị 1 là trùng lặp, 0 là không trùng lặp. Tất cả mô tả PHẢI bằng tiếng Việt."
     
     if cv_presentation:
         additional_fields += ',\n    "cv_presentation_comment": "Nhận xét về độ chuyên nghiệp trong trình bày CV (BẮT BUỘC: đánh giá format, layout, cách viết, cấu trúc bằng TIẾNG VIỆT, KHÔNG được để null)"'
@@ -180,9 +180,9 @@ def get_cv_matching_prompt(jd_text: str, response_requirement: str, cv_contents_
         additional_fields += ',\n    "interview_questions": ["Câu hỏi 1", "Câu hỏi 2", "Câu hỏi 3", ...] (BẮT BUỘC: đề xuất 3-5 câu hỏi phỏng vấn BẰNG TIẾNG VIỆT phù hợp với CV và level của ứng viên, KHÔNG được để null hoặc bỏ trống)'
         additional_requirements += "\n9. BẮT BUỘC: Đề xuất 3-5 câu hỏi phỏng vấn BẰNG TIẾNG VIỆT phù hợp với CV và level của ứng viên (dựa trên kinh nghiệm, kỹ năng, vị trí). Field interview_questions PHẢI có giá trị là array chứa các câu hỏi BẰNG TIẾNG VIỆT, không được để null."
     
-    if suggest_other_roles:
-        additional_fields += ',\n    "suggested_roles": ["Vị trí 1", "Vị trí 2", ...] (BẮT BUỘC: gợi ý các vị trí khác BẰNG TIẾNG VIỆT phù hợp nếu CV không phù hợp với JD hiện tại, null nếu CV phù hợp và score cao)'
-        additional_requirements += "\n10. BẮT BUỘC: Nếu CV không phù hợp với JD (score thấp), gợi ý các vị trí/role khác BẰNG TIẾNG VIỆT mà ứng viên có thể phù hợp dựa trên kỹ năng và kinh nghiệm. Field suggested_roles PHẢI có giá trị (null hoặc array các vị trí BẰNG TIẾNG VIỆT)."
+    if job_leveling:
+        additional_fields += ',\n    "job_leveling": ["Fresher", "Junior", "Mid", "Senior"] hoặc null'
+        additional_requirements += "\n10. BẮT BUỘC: Đánh giá cấp bậc của người ứng viên (junior/mid/senior) dựa trên kỹ năng và kinh nghiệm. Field job_leveling PHẢI có giá trị (null hoặc array các cấp bậc)."
     
     if cert_benefit:
         additional_fields += ',\n    "cert_comment": "Nhận xét về các chứng chỉ (BẮT BUỘC: giá trị, mức độ phù hợp với JD, lợi ích mang lại BẰNG TIẾNG VIỆT, KHÔNG được để null)"'
@@ -315,17 +315,17 @@ def get_stage3_advanced_prompt(cv_data_list: list, jd_text: str, requirements: d
         fields.append('"interview_questions": ["Câu hỏi 1", "Câu hỏi 2", "Câu hỏi 3"]')
         requirements_text += "\n- interview_questions: Đề xuất 3-5 câu hỏi phỏng vấn phù hợp với level và kỹ năng của ứng viên"
     
-    if advanced_options.get("suggestOtherRoles", False):
-        fields.append('"suggested_roles": ["Vị trí 1", "Vị trí 2"] hoặc null')
-        requirements_text += "\n- suggested_roles: Gợi ý 2-3 vị trí khác phù hợp (null nếu CV đã phù hợp với JD)"
+    if advanced_options.get("jobLeveling", False):
+        fields.append('"job_leveling": ["Fresher", "Junior", "Mid", "Senior"] hoặc null')
+        requirements_text += "\n- job_leveling: Đánh giá cấp bậc của người ứng viên (junior/mid/senior) dựa trên kỹ năng và kinh nghiệm"
     
     if advanced_options.get("certBenefit", False):
         fields.append('"cert_comment": "Nhận xét về chứng chỉ"')
         requirements_text += "\n- cert_comment: Phân tích giá trị các chứng chỉ trong CV (nếu có)"
     
-    if advanced_options.get("detectDuplicate", False):
-        fields.append('"duplicate_warning": "Cảnh báo" hoặc null')
-        requirements_text += "\n- duplicate_warning: Cảnh báo nếu phát hiện CV trùng lặp/giả mạo (so sánh GIỮA các CVs)"
+    # if advanced_options.get("detectDuplicate", False):
+    #     fields.append('"duplicate_warning": "Cảnh báo" hoặc null')
+    #     requirements_text += "\n- duplicate_warning: Cảnh báo nếu phát hiện CV trùng lặp/giả mạo (so sánh GIỮA các CVs)"
     
     if not fields:
         return ""  # Không có advanced options nào được enable
@@ -353,7 +353,7 @@ QUY TẮC:
 - Trung thực, không phóng đại
 - cv_presentation_comment: Đánh giá dựa trên cảm nhận về CV (vì không có file gốc)
 - interview_questions: Phù hợp với level (junior/mid/senior) và kỹ năng
-- suggested_roles: Chỉ gợi ý khi CV KHÔNG phù hợp với JD hiện tại
+- job_leveling: Đánh giá cấp bậc dựa trên kỹ năng và kinh nghiệm được trích xuất
 - duplicate_warning: So sánh GIỮA các CVs, cảnh báo nếu thấy thông tin giống nhau bất thường
 
 Trả về JSON array:

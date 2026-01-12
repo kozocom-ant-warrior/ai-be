@@ -1,12 +1,14 @@
 """Routes cho CV upload"""
 from pathlib import Path
 from typing import List
+import hashlib
 from fastapi import APIRouter, File, UploadFile, HTTPException, status
 from fastapi.responses import Response
 from config import CV_DIRECTORY
 from db.database import save_file_to_database, get_file_by_id, get_all_files, delete_file_from_database
 from models import FileResponse, FileListResponse
 from utils import calculate_file_hash, generate_safe_filename, extract_text_from_file
+from db import vector_db
 
 router = APIRouter(prefix="/cv", tags=["CV"])
 
@@ -84,6 +86,42 @@ async def upload_cv(files: List[UploadFile] = File(...)):
                     print(content[:500])  # Print first 500 chars
                     print(f"... (total {len(content)} chars)")
                     print(f"{'='*80}\n")
+                    
+                    # ============================================
+                    # DUPLICATE DETECTION: Check if CV already exists
+                    # ============================================
+                    content_hash = hashlib.md5(content.encode()).hexdigest()
+                    doc_id = content_hash  # Same as vector_db doc_id format
+                    
+                    # Check ChromaDB embedding cache
+                    try:
+                        collection = vector_db._get_or_create_collection(vector_db.CV_COLLECTION_NAME)
+                        existing_cv = collection.get(
+                            ids=[doc_id],
+                            include=["metadatas"]
+                        )
+                        
+                        if existing_cv['ids'] and len(existing_cv['ids']) > 0:
+                            # Found duplicate!
+                            existing_metadata = existing_cv['metadatas'][0]
+                            existing_filename = existing_metadata.get('filename', 'Unknown')
+                            existing_file_id = existing_metadata.get('file_id', 'Unknown')
+                            
+                            # Delete the newly uploaded file
+                            if file_path.exists():
+                                file_path.unlink()
+                            
+                            # Return error with duplicate info
+                            failed_files.append({
+                                "filename": original_filename,
+                                "error": f"⚠️ CV trùng lặp! File này giống 100% với '{existing_filename}' (file_id: {existing_file_id}) đã có trong hệ thống. Vui lòng kiểm tra lại."
+                            })
+                            print(f"🔍 Duplicate detected: {original_filename} === {existing_filename}")
+                            continue  # Skip to next file
+                    except Exception as e:
+                        # If duplicate check fails, continue with upload (fail-safe)
+                        print(f"Warning: Duplicate check failed for {original_filename}: {e}")
+                    
                 else:
                     print(f"Warning: Không thể trích xuất nội dung từ file {original_filename}")
             except Exception as e:
