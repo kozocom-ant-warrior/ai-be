@@ -1,5 +1,18 @@
 # JD Cache Invalidation Strategy
 
+## ⚠️ DEPRECATED - This document is outdated
+
+**Date**: January 9, 2026  
+**Status**: 🚫 Deprecated
+
+**Reason**: Fuzzy matching strategy has been removed. JD embeddings now use simple content-based cache (exact match only) for better accuracy and simpler implementation.
+
+**See**: `db/vector_db.py` - `get_cached_jd_embedding()` for current implementation
+
+---
+
+# Original Document (For Reference)
+
 ## ❓ Vấn đề
 
 JD thường có **minor changes** (sửa 1-2 chữ) → Nếu dùng strict hash matching thì mất cache → Tốn tiền!

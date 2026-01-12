@@ -230,7 +230,7 @@ def get_embedding(text: str, cache_id: Optional[int] = None, cache_type: Optiona
         if cache_type == 'cv':
             cached = vector_db.get_cached_cv_embedding(cache_id, text)
         elif cache_type == 'jd':
-            cached = vector_db.get_cached_jd_embedding(cache_id, text)
+            cached = vector_db.get_cached_jd_embedding(text)
         else:
             cached = None
             
@@ -255,7 +255,7 @@ def get_embedding(text: str, cache_id: Optional[int] = None, cache_type: Optiona
             if cache_type == 'cv':
                 vector_db.cache_cv_embedding(cache_id, filename, text, embedding)
             elif cache_type == 'jd':
-                vector_db.cache_jd_embedding(cache_id, filename, text, embedding)
+                vector_db.cache_jd_embedding(filename, text, embedding)
         
         return embedding
     except Exception as e:
@@ -274,7 +274,8 @@ def cosine_similarity(vec1: list, vec2: list) -> float:
     Returns:
         float: Cosine similarity (0-1)
     """
-    if not vec1 or not vec2:
+    # Check if vectors are empty or None
+    if vec1 is None or vec2 is None or len(vec1) == 0 or len(vec2) == 0:
         return 0.0
     
     vec1_np = np.array(vec1)
@@ -316,7 +317,7 @@ def pre_filter_cvs_by_similarity(cv_data_list: list, jd_text: str, response_requ
         logger.info(f"Đang tạo embedding cho JD (với cache)...")
         jd_embedding = get_embedding(jd_text, cache_id=jd_cache_id, cache_type='jd')
         
-        if not jd_embedding:
+        if jd_embedding is None or len(jd_embedding) == 0:
             logger.warning("Không tạo được JD embedding, bỏ qua pre-filtering")
             return cv_data_list
         
@@ -556,6 +557,17 @@ async def thinking_dump(request: Request):
         logger.info(f"Đã đọc được {len(cv_data_list)} CV")
         logger.info(f"Advanced options: {advanced_options}")
         
+        # Debug: Log JD text hash để detect duplicates
+        import hashlib
+        jd_hash_preview = hashlib.md5(jd_text.encode('utf-8')).hexdigest()
+        logger.info("=" * 80)
+        logger.info("🔍 JD TEXT DEBUG:")
+        logger.info(f"   Length: {len(jd_text)} chars")
+        logger.info(f"   MD5 Hash: {jd_hash_preview}")
+        logger.info(f"   First 200 chars: {jd_text[:200]}")
+        logger.info(f"   Last 100 chars: {jd_text[-100:]}")
+        logger.info("=" * 80)
+        
         # Lấy số lượng CV cần trả về từ payload (max_cv_count) hoặc parse từ response_requirement
         requested_cv_count = None
         
@@ -713,7 +725,12 @@ async def thinking_dump(request: Request):
         cv_list = []
         
         # Tạo JD hash để dùng cho cache (extraction phụ thuộc vào JD)
+        # Số lượng CV cần return → Dùng field max_cv_count riêng (không ảnh hưởng cache)
         jd_hash = hashlib.md5(jd_text.encode('utf-8')).hexdigest()
+        logger.info(f"JD hash: {jd_hash[:16]}... (full: {jd_hash})")
+        logger.info(f"JD text length: {len(jd_text)} chars")
+        logger.info(f"JD text (first 200 chars): {jd_text[:200]}...")
+        logger.info(f"JD text (last 100 chars): ...{jd_text[-100:]}")
         
         # Chia CVs thành các batch để tối ưu chi phí và tránh truncate
         # gpt-4o-mini output ngắn hơn gpt-4o → có thể tăng batch size
@@ -738,6 +755,12 @@ async def thinking_dump(request: Request):
                 for cv in cv_batch:
                     cv_file_id = cv.get('file_id')
                     cv_content = cv.get('content', '')
+                    cv_filename = cv.get('filename', 'unknown')
+                    
+                    # Debug: Log cache check
+                    content_hash = hashlib.md5(cv_content.encode()).hexdigest()
+                    doc_id = f"cv_{content_hash[:16]}_{jd_hash[:16]}"
+                    logger.info(f"  🔍 Checking cache: {cv_filename} (file_id={cv_file_id}, doc_id={doc_id})")
                     
                     # Check cache (extraction phụ thuộc cả CV lẫn JD)
                     cached_data = vector_db.get_cached_extracted_cv_data(
@@ -749,10 +772,11 @@ async def thinking_dump(request: Request):
                     if cached_data:
                         extraction_cache_hits += 1
                         batch_cached_cvs.append(cached_data)
-                        logger.info(f"  📦 Cache HIT (extraction): {cv.get('filename')} (file_id={cv_file_id})")
+                        logger.info(f"  ✅ Cache HIT (extraction): {cv_filename} (file_id={cv_file_id})")
                     else:
                         extraction_cache_misses += 1
                         batch_uncached_cvs.append(cv)
+                        logger.info(f"  ❌ Cache MISS (extraction): {cv_filename} (file_id={cv_file_id})")
                 
                 # Nếu toàn bộ batch đã có cache, bỏ qua OpenAI
                 if len(batch_uncached_cvs) == 0:
@@ -892,21 +916,18 @@ async def thinking_dump(request: Request):
                 "mapping_description": score_result["mapping_description"]
             }
             
-            # Add advanced options fields if needed
-            if advanced_options.get("detectDuplicate", False):
-                cv_item["duplicate_warning"] = None  # TODO: Implement duplicate detection
-            
+            # Add placeholder for advanced features if enabled (Stage 3 will override with real data)
             if advanced_options.get("cvPresentation", False):
-                cv_item["cv_presentation_comment"] = "Chức năng đang được phát triển"  # TODO: Implement
+                cv_item["cv_presentation_comment"] = None  # Stage 3 will override
             
             if advanced_options.get("interviewQuestions", False):
-                cv_item["interview_questions"] = []  # TODO: Implement
+                cv_item["interview_questions"] = []  # Stage 3 will override
             
-            if advanced_options.get("suggestOtherRoles", False):
-                cv_item["suggested_roles"] = None if score_result["score"] >= 70 else []  # TODO: Implement
+            if advanced_options.get("jobLeveling", False):
+                cv_item["job_leveling"] = []  # Stage 3 will override
             
             if advanced_options.get("certBenefit", False):
-                cv_item["cert_comment"] = "Chức năng đang được phát triển"  # TODO: Implement
+                cv_item["cert_comment"] = None  # Stage 3 will override
             
             cv_list.append(cv_item)
         
@@ -929,14 +950,31 @@ async def thinking_dump(request: Request):
             for i, cv in enumerate(top_3, 1):
                 logger.info(f"  {i}. {cv.get('candidate_name')}: {cv['scope']['score']:.1f}/100")
         logger.info(f"⏱️  Stage 2 completed in {stage2_time:.2f}s (deterministic, no API calls)")
+        logger.info("=" * 80)
         
-        # STAGE 3: Advanced Features (CONDITIONAL - chỉ chạy khi có advanced options)
+        # Lọc chỉ giữ CV có score > 0 (TRƯỚC Stage 3)
+        cv_list_before_filter = len(cv_list)
+        cv_list = [cv for cv in cv_list if cv.get("scope", {}).get("score", 0) > 0]
+        
+        if cv_list_before_filter > len(cv_list):
+            logger.info(f"Đã lọc: {cv_list_before_filter} CVs → {len(cv_list)} CVs (loại {cv_list_before_filter - len(cv_list)} CVs có score = 0)")
+        else:
+            logger.info(f"Không có CV nào bị loại (tất cả {len(cv_list)} CVs đều có score > 0)")
+        
+        # Giới hạn số lượng CV theo yêu cầu (nếu có) - TRƯỚC Stage 3
+        if requested_cv_count and requested_cv_count > 0:
+            cv_list_before_limit = len(cv_list)
+            cv_list = cv_list[:requested_cv_count]
+            logger.info(f"Giới hạn kết quả: {cv_list_before_limit} CVs → {len(cv_list)} CVs (theo yêu cầu: top {requested_cv_count})")
+        
+        # STAGE 3: Advanced Features (DI CHUYỂN XUỐNG ĐÂY - SAU KHI ĐÃ LIMIT)
+        # CHỈ generate cho CVs cuối cùng cần trả về
         stage3_time = 0
         has_advanced_options = any([
-            advanced_options.get("detectDuplicate", False),
+            # advanced_options.get("detectDuplicate", False),
             advanced_options.get("cvPresentation", False),
             advanced_options.get("interviewQuestions", False),
-            advanced_options.get("suggestOtherRoles", False),
+            advanced_options.get("jobLeveling", False),
             advanced_options.get("certBenefit", False)
         ])
         
@@ -947,52 +985,99 @@ async def thinking_dump(request: Request):
             
             stage3_start = time.time()
             
-            # Check cache
+            # Check cache cho TỪNG CV riêng lẻ
             cv_ids = [cv.get('file_id') for cv in cv_list]
             cached_advanced = vector_db.get_cached_advanced_features(jd_hash, cv_ids, advanced_options)
             
             if cached_advanced:
-                logger.info(f"📦 Cache HIT: Stage 3 advanced features for {len(cv_list)} CVs")
+                logger.info(f"📦 Cache HIT: Stage 3 advanced features for ALL {len(cv_list)} CVs")
                 advanced_data = cached_advanced
             else:
-                logger.info(f"🔄 Cache MISS: Generating advanced features for {len(cv_list)} CVs...")
+                # Một số CVs đã có cache, một số chưa → Chỉ generate cho CVs chưa có cache
+                logger.info(f"🔄 Cache PARTIAL/MISS: Checking individual CV cache...")
                 
-                # Generate prompt
-                advanced_prompt = get_stage3_advanced_prompt(extracted_cvs, jd_text, requirements, advanced_options)
+                # Check cache từng CV
+                options_str = json.dumps(advanced_options, sort_keys=True)
+                options_hash = hashlib.md5(options_str.encode()).hexdigest()
                 
-                if advanced_prompt:
-                    # Call OpenAI
-                    logger.info(f"Đang gọi OpenAI API ({OPENAI_MINI_MODEL}) cho advanced features...")
-                    stage3_response = call_openai_with_retry(
-                        messages=[
-                            {"role": "system", "content": "Bạn là chuyên gia tuyển dụng AI. Tạo advanced features cho CVs. Trả về CHÍNH XÁC JSON như yêu cầu."},
-                            {"role": "user", "content": advanced_prompt}
-                        ],
-                        model=OPENAI_MINI_MODEL
-                    )
+                cached_cvs = []
+                uncached_cvs = []
+                
+                for cv_item in cv_list:
+                    cv_id = cv_item.get('cv_id')
+                    file_id = cv_item.get('file_id')
                     
-                    # Parse response
-                    stage3_text = stage3_response.choices[0].message.content.strip()
+                    # Check individual cache
+                    collection = vector_db._get_or_create_collection(vector_db.ADVANCED_FEATURES_COLLECTION)
+                    doc_id = f"advanced_{jd_hash[:16]}_{cv_id}_{options_hash[:8]}"
                     
-                    # Extract JSON
-                    if "```json" in stage3_text:
-                        stage3_text = stage3_text.split("```json")[1].split("```")[0].strip()
-                    elif "```" in stage3_text:
-                        stage3_text = stage3_text.split("```")[1].split("```")[0].strip()
+                    result = collection.get(ids=[doc_id], include=["documents"])
                     
-                    advanced_data = json.loads(stage3_text)
+                    if result['ids'] and len(result['documents']) > 0:
+                        cv_advanced = json.loads(result['documents'][0])
+                        cached_cvs.append(cv_advanced)
+                        logger.info(f"  📦 Cache HIT: {cv_item.get('candidate_name', 'Unknown')} (cv_id={cv_id})")
+                    else:
+                        # Tìm extracted_cv tương ứng
+                        extracted_cv = next((cv for cv in extracted_cvs if cv.get('cv_id') == cv_id), None)
+                        if extracted_cv:
+                            uncached_cvs.append(extracted_cv)
+                            logger.info(f"  🔄 Cache MISS: {cv_item.get('candidate_name', 'Unknown')} (cv_id={cv_id})")
+                
+                logger.info(f"Cache status: {len(cached_cvs)} hits, {len(uncached_cvs)} misses")
+                
+                # Nếu có CVs chưa cache, gọi OpenAI CHỈ cho các CVs đó
+                newly_generated = []
+                if len(uncached_cvs) > 0:
+                    logger.info(f"🔄 Generating advanced features for {len(uncached_cvs)} uncached CVs...")
                     
-                    # Track tokens
-                    stage3_usage = stage3_response.usage
-                    total_prompt_tokens += stage3_usage.prompt_tokens
-                    total_completion_tokens += stage3_usage.completion_tokens
-                    total_tokens += stage3_usage.total_tokens
+                    # Generate prompt CHỈ cho uncached CVs
+                    advanced_prompt = get_stage3_advanced_prompt(uncached_cvs, jd_text, requirements, advanced_options)
                     
-                    # Cache kết quả
-                    vector_db.cache_advanced_features(jd_hash, cv_ids, advanced_options, advanced_data)
-                    logger.info(f"✓ Cached Stage 3 advanced features for {len(cv_list)} CVs")
-                else:
-                    advanced_data = []
+                    if advanced_prompt:
+                        # Call OpenAI
+                        logger.info(f"Đang gọi OpenAI API ({OPENAI_MINI_MODEL}) cho {len(uncached_cvs)} CVs...")
+                        stage3_response = call_openai_with_retry(
+                            messages=[
+                                {"role": "system", "content": "Bạn là chuyên gia tuyển dụng AI. Tạo advanced features cho CVs. Trả về CHÍNH XÁC JSON như yêu cầu."},
+                                {"role": "user", "content": advanced_prompt}
+                            ],
+                            model=OPENAI_MINI_MODEL
+                        )
+                        
+                        # Parse response
+                        stage3_text = stage3_response.choices[0].message.content.strip()
+                        
+                        # DEBUG: Log GPT response for job_leveling
+                        logger.info("=" * 80)
+                        logger.info("🔍 STAGE 3 GPT RESPONSE DEBUG:")
+                        logger.info(f"Response length: {len(stage3_text)} chars")
+                        logger.info(f"First 500 chars: {stage3_text[:500]}")
+                        logger.info(f"Contains 'job_leveling': {'job_leveling' in stage3_text}")
+                        logger.info("=" * 80)
+                        
+                        # Extract JSON
+                        if "```json" in stage3_text:
+                            stage3_text = stage3_text.split("```json")[1].split("```")[0].strip()
+                        elif "```" in stage3_text:
+                            stage3_text = stage3_text.split("```")[1].split("```")[0].strip()
+                        
+                        newly_generated = json.loads(stage3_text)
+                        
+                        # Track tokens
+                        stage3_usage = stage3_response.usage
+                        total_prompt_tokens += stage3_usage.prompt_tokens
+                        total_completion_tokens += stage3_usage.completion_tokens
+                        total_tokens += stage3_usage.total_tokens
+                        
+                        # Cache kết quả (từng CV riêng lẻ)
+                        uncached_cv_ids = [cv.get('file_id') for cv in uncached_cvs]
+                        vector_db.cache_advanced_features(jd_hash, uncached_cv_ids, advanced_options, newly_generated)
+                        logger.info(f"✓ Cached Stage 3 advanced features for {len(newly_generated)} newly generated CVs")
+                
+                # Merge cached + newly generated
+                advanced_data = cached_cvs + newly_generated
+                logger.info(f"Total advanced data: {len(cached_cvs)} cached + {len(newly_generated)} new = {len(advanced_data)} CVs")
             
             # Merge advanced data vào cv_list
             advanced_dict = {item.get('cv_id'): item for item in advanced_data}
@@ -1002,8 +1087,8 @@ async def thinking_dump(request: Request):
                     advanced_item = advanced_dict[cv_id]
                     
                     # Merge các fields
-                    if advanced_options.get("detectDuplicate") and 'duplicate_warning' in advanced_item:
-                        cv_item["duplicate_warning"] = advanced_item["duplicate_warning"]
+                    # if advanced_options.get("detectDuplicate") and 'duplicate_warning' in advanced_item:
+                    #     cv_item["duplicate_warning"] = advanced_item["duplicate_warning"]
                     
                     if advanced_options.get("cvPresentation") and 'cv_presentation_comment' in advanced_item:
                         cv_item["cv_presentation_comment"] = advanced_item["cv_presentation_comment"]
@@ -1011,8 +1096,8 @@ async def thinking_dump(request: Request):
                     if advanced_options.get("interviewQuestions") and 'interview_questions' in advanced_item:
                         cv_item["interview_questions"] = advanced_item["interview_questions"]
                     
-                    if advanced_options.get("suggestOtherRoles") and 'suggested_roles' in advanced_item:
-                        cv_item["suggested_roles"] = advanced_item["suggested_roles"]
+                    if advanced_options.get("jobLeveling") and 'job_leveling' in advanced_item:
+                        cv_item["job_leveling"] = advanced_item["job_leveling"]
                     
                     if advanced_options.get("certBenefit") and 'cert_comment' in advanced_item:
                         cv_item["cert_comment"] = advanced_item["cert_comment"]
@@ -1021,20 +1106,7 @@ async def thinking_dump(request: Request):
             logger.info(f"⏱️  Stage 3 completed in {stage3_time:.2f}s")
             logger.info("=" * 80)
         
-        # Lọc chỉ giữ CV có score > 0
-        cv_list_before_filter = len(cv_list)
-        cv_list = [cv for cv in cv_list if cv.get("scope", {}).get("score", 0) > 0]
-        
-        if cv_list_before_filter > len(cv_list):
-            logger.info(f"Đã lọc: {cv_list_before_filter} CVs → {len(cv_list)} CVs (loại {cv_list_before_filter - len(cv_list)} CVs có score = 0)")
-        else:
-            logger.info(f"Không có CV nào bị loại (tất cả {len(cv_list)} CVs đều có score > 0)")
-        
-        # Giới hạn số lượng CV theo yêu cầu (nếu có)
-        if requested_cv_count and requested_cv_count > 0:
-            cv_list_before_limit = len(cv_list)
-            cv_list = cv_list[:requested_cv_count]
-            logger.info(f"Giới hạn kết quả: {cv_list_before_limit} CVs → {len(cv_list)} CVs (theo yêu cầu: top {requested_cv_count})")
+        # Filter/limit đã được di chuyển lên trước Stage 3
         
         total_time = time.time() - stage1_start
         

@@ -130,10 +130,9 @@ ai-be/
     - **Stage 2**: Deterministic scoring (no API cost)
     - **Stage 3**: Advanced features (conditional, cached)
   - Advanced Options:
-    - `detectDuplicate`: Phát hiện CV trùng lặp/giả mạo
     - `cvPresentation`: Đánh giá độ chuyên nghiệp CV
     - `interviewQuestions`: Gợi ý câu hỏi phỏng vấn
-    - `suggestOtherRoles`: Đề xuất vị trí phù hợp hơn
+    - `jobLeveling`: Đánh giá cấp bậc
     - `certBenefit`: Phân tích certificate ↔ benefits
 
 ### 📄 JD (Job Description) - Chỉ upload 1 file
@@ -236,7 +235,7 @@ curl "http://localhost:8000/files?limit=50&offset=0&type=cv"
 curl -X POST "http://localhost:8000/thinking" \
   -F "jd_text=Job description text here" \
   -F "response_requirement=Lấy các CV của ứng viên làm PHP" \
-  -F "advanced_options={\"detectDuplicate\":true,\"cvPresentation\":true,\"interviewQuestions\":true}"
+  -F "advanced_options={\"cvPresentation\":true,\"interviewQuestions\":true}"
 ```
 
 **Response format:**
@@ -270,7 +269,7 @@ curl -X POST "http://localhost:8000/thinking" \
       "duplicate_warning": null,
       "cv_presentation_comment": "Nhận xét về CV...",
       "interview_questions": ["Câu hỏi 1", "Câu hỏi 2", ...],
-      "suggested_roles": null,
+      "job_leveling": null,
       "cert_comment": "Nhận xét về chứng chỉ..."
     }
   ],
@@ -280,7 +279,7 @@ curl -X POST "http://localhost:8000/thinking" \
 ```
 
 **Lưu ý:**
-- Các field như `duplicate_warning`, `cv_presentation_comment`, `interview_questions`, `suggested_roles`, `cert_comment` chỉ xuất hiện khi được bật trong `advanced_options`
+- Các field như `duplicate_warning`, `cv_presentation_comment`, `interview_questions`, `job_leveling`, `cert_comment` chỉ xuất hiện khi được bật trong `advanced_options`
 - CV được sắp xếp theo điểm số giảm dần (score cao nhất trước)
 - Chỉ trả về CV có score > 0
 
@@ -398,10 +397,9 @@ Xem file `requirements.txt` để biết danh sách đầy đủ dependencies:
 - Trả về điểm số (score 0-100) cho mỗi CV
 - Liệt kê các yêu cầu đã đáp ứng và còn thiếu
 - Hỗ trợ các tùy chọn nâng cao:
-  - `detectDuplicate`: Phát hiện CV trùng lặp/giả mạo
   - `cvPresentation`: Đánh giá độ chuyên nghiệp trong trình bày CV
   - `interviewQuestions`: Đề xuất câu hỏi phỏng vấn
-  - `suggestOtherRoles`: Gợi ý vị trí khác phù hợp
+  - `jobLeveling`: Đánh giá cấp bậc
   - `certBenefit`: Phân tích giá trị chứng chỉ
 
 ## 🐛 Troubleshooting

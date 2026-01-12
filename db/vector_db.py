@@ -59,7 +59,7 @@ def cache_cv_embedding(file_id: int, filename: str, content: str, embedding: Lis
     Cache embedding của CV vào ChromaDB
     
     Args:
-        file_id: ID của file trong SQLite database
+        file_id: ID của file trong SQLite database (stored in metadata for reference)
         filename: Tên file CV
         content: Nội dung text của CV
         embedding: Embedding vector (1536 chiều)
@@ -70,14 +70,16 @@ def cache_cv_embedding(file_id: int, filename: str, content: str, embedding: Lis
     try:
         collection = _get_or_create_collection(CV_COLLECTION_NAME)
         
-        doc_id = _generate_doc_id(content, f"cv_{file_id}")
+        # Use ONLY content hash for doc_id (not file_id)
+        # This enables duplicate detection across different file uploads
+        doc_id = _generate_doc_id(content)
         
         # Upsert: Update nếu đã tồn tại, Insert nếu chưa có
         collection.upsert(
             ids=[doc_id],
             embeddings=[embedding],
             metadatas=[{
-                "file_id": file_id,
+                "file_id": file_id,  # Keep for reference but not part of doc_id
                 "filename": filename,
                 "content_length": len(content),
                 "content_hash": hashlib.md5(content.encode()).hexdigest()
@@ -98,7 +100,7 @@ def get_cached_cv_embedding(file_id: int, content: str) -> Optional[List[float]]
     Lấy cached embedding của CV từ ChromaDB
     
     Args:
-        file_id: ID của file trong SQLite database
+        file_id: ID của file trong SQLite database (unused, kept for API compatibility)
         content: Nội dung text của CV (để verify hash)
         
     Returns:
@@ -107,7 +109,8 @@ def get_cached_cv_embedding(file_id: int, content: str) -> Optional[List[float]]
     try:
         collection = _get_or_create_collection(CV_COLLECTION_NAME)
         
-        doc_id = _generate_doc_id(content, f"cv_{file_id}")
+        # Use ONLY content hash (not file_id) for lookup
+        doc_id = _generate_doc_id(content)
         
         result = collection.get(
             ids=[doc_id],
@@ -120,7 +123,7 @@ def get_cached_cv_embedding(file_id: int, content: str) -> Optional[List[float]]
             current_hash = hashlib.md5(content.encode()).hexdigest()
             
             if cached_hash == current_hash:
-                logger.info(f"✓ Cache hit: CV {file_id}")
+                logger.info(f"✓ Cache hit: CV content hash {doc_id[:8]}...")
                 return result['embeddings'][0]
             else:
                 logger.warning(f"Cache hash mismatch for CV {file_id}, will regenerate")
@@ -134,12 +137,11 @@ def get_cached_cv_embedding(file_id: int, content: str) -> Optional[List[float]]
         return None
 
 
-def cache_jd_embedding(jd_id: int, filename: str, content: str, embedding: List[float]) -> bool:
+def cache_jd_embedding(filename: str, content: str, embedding: List[float]) -> bool:
     """
     Cache embedding của JD vào ChromaDB
     
     Args:
-        jd_id: ID của JD trong SQLite database
         filename: Tên file JD
         content: Nội dung text của JD
         embedding: Embedding vector (1536 chiều)
@@ -150,13 +152,13 @@ def cache_jd_embedding(jd_id: int, filename: str, content: str, embedding: List[
     try:
         collection = _get_or_create_collection(JD_COLLECTION_NAME)
         
-        doc_id = _generate_doc_id(content, f"jd_{jd_id}")
+        # Use pure content hash as doc_id (same content = same cache)
+        doc_id = _generate_doc_id(content)
         
         collection.upsert(
             ids=[doc_id],
             embeddings=[embedding],
             metadatas=[{
-                "jd_id": jd_id,
                 "filename": filename,
                 "content_length": len(content),
                 "content_hash": hashlib.md5(content.encode()).hexdigest()
@@ -172,16 +174,14 @@ def cache_jd_embedding(jd_id: int, filename: str, content: str, embedding: List[
         return False
 
 
-def get_cached_jd_embedding(jd_id: int, content: str, similarity_threshold: float = 0.95) -> Optional[List[float]]:
+def get_cached_jd_embedding(content: str) -> Optional[List[float]]:
     """
-    Lấy cached embedding của JD từ ChromaDB với fuzzy matching
+    Lấy cached embedding của JD từ ChromaDB
     
-    Strategy: Nếu JD mới ~95% giống JD cũ → Dùng lại cache (tiết kiệm API cost)
+    Strategy: Content-based cache - JD giống nhau 100% → Cache HIT
     
     Args:
-        jd_id: ID của JD trong SQLite database
         content: Nội dung text của JD
-        similarity_threshold: Ngưỡng similarity để dùng lại cache (0.95 = 95% giống)
         
     Returns:
         Optional[List[float]]: Embedding vector nếu có trong cache, None nếu không
@@ -189,8 +189,8 @@ def get_cached_jd_embedding(jd_id: int, content: str, similarity_threshold: floa
     try:
         collection = _get_or_create_collection(JD_COLLECTION_NAME)
         
-        # Strategy 1: Exact match (MD5 hash)
-        doc_id = _generate_doc_id(content, f"jd_{jd_id}")
+        # Use pure content hash for lookup
+        doc_id = _generate_doc_id(content)
         
         result = collection.get(
             ids=[doc_id],
@@ -198,42 +198,10 @@ def get_cached_jd_embedding(jd_id: int, content: str, similarity_threshold: floa
         )
         
         if result['ids'] and len(result['embeddings']) > 0:
-            # doc_id already includes content hash, so if found, it's guaranteed to match
-            logger.info(f"✓ Cache hit (exact): JD {jd_id}")
+            logger.info(f"✓ Cache hit: JD content hash {doc_id[:8]}...")
             return result['embeddings'][0]
         
-        # Strategy 2: Fuzzy match - Tìm JD tương tự bằng text similarity
-        # Dùng simple character-based similarity (không cần embedding)
-        # Chỉ check JDs của cùng jd_id (version khác nhau của cùng 1 JD)
-        all_jd_results = collection.get(
-            where={"jd_id": jd_id},  # Chỉ check các version của cùng JD
-            include=["embeddings", "metadatas", "documents"]
-        )
-        
-        if all_jd_results['ids'] and len(all_jd_results['ids']) > 0:
-            current_content_lower = content.lower().strip()
-            
-            for i, cached_doc_id in enumerate(all_jd_results['ids']):
-                cached_content = all_jd_results['documents'][i]
-                cached_content_lower = cached_content.lower().strip()
-                
-                # Tính text similarity đơn giản (Jaccard similarity)
-                current_words = set(current_content_lower.split())
-                cached_words = set(cached_content_lower.split())
-                
-                if len(current_words) == 0 or len(cached_words) == 0:
-                    continue
-                
-                intersection = current_words.intersection(cached_words)
-                union = current_words.union(cached_words)
-                text_similarity = len(intersection) / len(union) if len(union) > 0 else 0
-                
-                # Nếu >= threshold, dùng lại cached embedding
-                if text_similarity >= similarity_threshold:
-                    logger.info(f"✓ Cache hit (fuzzy {text_similarity:.1%}): JD {jd_id} - Reusing similar JD embedding")
-                    return all_jd_results['embeddings'][i]
-        
-        logger.info(f"Cache miss: JD {jd_id} (no exact or similar match)")
+        logger.info(f"Cache miss: JD content hash {doc_id[:8]}...")
         return None
         
     except Exception as e:
@@ -305,7 +273,7 @@ def cache_extracted_cv_data(file_id: int, content: str, jd_hash: str, extracted_
     Cache extracted CV data (JSON) để tránh gọi OpenAI extraction lại
     
     Args:
-        file_id: ID của CV file
+        file_id: ID của CV file (stored in metadata for reference)
         content: Nội dung text của CV (để tạo hash)
         jd_hash: Hash của JD (vì extracted data phụ thuộc vào JD requirements)
         extracted_data: JSON data đã extract từ OpenAI
@@ -317,21 +285,22 @@ def cache_extracted_cv_data(file_id: int, content: str, jd_hash: str, extracted_
         collection = _get_or_create_collection(CV_EXTRACTED_DATA_COLLECTION)
         
         # ID = cv_content_hash + jd_hash (vì extraction phụ thuộc cả CV lẫn JD)
+        # Remove file_id from doc_id to enable duplicate detection
         content_hash = hashlib.md5(content.encode()).hexdigest()
-        doc_id = f"cv_{file_id}_{content_hash[:8]}_{jd_hash[:8]}"
+        doc_id = f"cv_{content_hash[:16]}_{jd_hash[:16]}"
         
         collection.upsert(
             ids=[doc_id],
-            documents=[str(extracted_data)],  # Store as string
+            documents=[json.dumps(extracted_data)],  # Store as JSON string
             metadatas=[{
-                "file_id": file_id,
+                "file_id": file_id,  # Keep for reference
                 "content_hash": content_hash,
                 "jd_hash": jd_hash,
                 "extracted_at": hashlib.md5(str(time.time()).encode()).hexdigest()[:8]
             }]
         )
         
-        logger.debug(f"✓ Cached extracted CV data: file_id={file_id}")
+        logger.info(f"✓ Cached extracted CV data: doc_id={doc_id}")
         return True
         
     except Exception as e:
@@ -344,7 +313,7 @@ def get_cached_extracted_cv_data(file_id: int, content: str, jd_hash: str) -> Op
     Lấy cached extracted CV data
     
     Args:
-        file_id: ID của CV file
+        file_id: ID của CV file (unused, kept for API compatibility)
         content: Nội dung text của CV
         jd_hash: Hash của JD
         
@@ -355,7 +324,7 @@ def get_cached_extracted_cv_data(file_id: int, content: str, jd_hash: str) -> Op
         collection = _get_or_create_collection(CV_EXTRACTED_DATA_COLLECTION)
         
         content_hash = hashlib.md5(content.encode()).hexdigest()
-        doc_id = f"cv_{file_id}_{content_hash[:8]}_{jd_hash[:8]}"
+        doc_id = f"cv_{content_hash[:16]}_{jd_hash[:16]}"
         
         result = collection.get(
             ids=[doc_id],
@@ -366,14 +335,26 @@ def get_cached_extracted_cv_data(file_id: int, content: str, jd_hash: str) -> Op
             # Verify content hash
             cached_content_hash = result['metadatas'][0].get('content_hash')
             if cached_content_hash == content_hash:
-                import ast
-                extracted_data = ast.literal_eval(result['documents'][0])
-                logger.debug(f"✓ Cache hit: Extracted CV data for file_id={file_id}")
+                try:
+                    # Try JSON first (new format)
+                    extracted_data = json.loads(result['documents'][0])
+                except json.JSONDecodeError:
+                    # Fallback to ast.literal_eval for old cache (Python str format)
+                    try:
+                        import ast
+                        extracted_data = ast.literal_eval(result['documents'][0])
+                        logger.warning(f"⚠️  Using legacy cache format (str), consider re-caching: {doc_id}")
+                    except Exception as e:
+                        logger.error(f"❌ Failed to parse cached data: {e}")
+                        return None
+                
+                logger.info(f"✓ Cache HIT: Extracted CV data (doc_id={doc_id})")
                 return extracted_data
             else:
-                logger.warning(f"Cache content hash mismatch for CV {file_id}")
+                logger.warning(f"⚠️  Cache content hash mismatch: expected={content_hash[:8]}, cached={cached_content_hash[:8]}")
                 return None
         
+        logger.info(f"Cache MISS: doc_id={doc_id} not found")
         return None
         
     except Exception as e:
@@ -383,11 +364,11 @@ def get_cached_extracted_cv_data(file_id: int, content: str, jd_hash: str) -> Op
 
 def cache_advanced_features(jd_hash: str, cv_ids: list, advanced_options: dict, advanced_data: list) -> bool:
     """
-    Cache Stage 3 advanced features data
+    Cache Stage 3 advanced features data - Cache TỪNG CV riêng lẻ
     
     Args:
         jd_hash: Hash của JD
-        cv_ids: List các CV IDs
+        cv_ids: List các CV IDs (không dùng trong cache key nữa)
         advanced_options: Advanced options được enable
         advanced_data: Advanced features data (array of dicts)
         
@@ -397,26 +378,32 @@ def cache_advanced_features(jd_hash: str, cv_ids: list, advanced_options: dict, 
     try:
         collection = _get_or_create_collection(ADVANCED_FEATURES_COLLECTION)
         
-        # Create unique ID based on JD + CV IDs + options
-        cv_ids_str = "_".join(sorted([str(id) for id in cv_ids]))
-        cv_ids_hash = hashlib.md5(cv_ids_str.encode()).hexdigest()
+        # Cache TỪNG CV riêng lẻ
         options_str = json.dumps(advanced_options, sort_keys=True)
         options_hash = hashlib.md5(options_str.encode()).hexdigest()
         
-        doc_id = f"advanced_{jd_hash[:8]}_{cv_ids_hash[:8]}_{options_hash[:8]}"
+        cached_count = 0
+        for cv_advanced in advanced_data:
+            cv_id = cv_advanced.get('cv_id')
+            if not cv_id:
+                continue
+            
+            # Doc ID = jd_hash + cv_id + options_hash (KHÔNG phụ thuộc vào số lượng CVs)
+            doc_id = f"advanced_{jd_hash[:16]}_{cv_id}_{options_hash[:8]}"
+            
+            collection.upsert(
+                ids=[doc_id],
+                documents=[json.dumps(cv_advanced)],
+                metadatas=[{
+                    "jd_hash": jd_hash,
+                    "cv_id": cv_id,
+                    "options_hash": options_hash,
+                    "cached_at": hashlib.md5(str(time.time()).encode()).hexdigest()[:8]
+                }]
+            )
+            cached_count += 1
         
-        collection.upsert(
-            ids=[doc_id],
-            documents=[json.dumps(advanced_data)],
-            metadatas=[{
-                "jd_hash": jd_hash,
-                "cv_count": len(cv_ids),
-                "options_hash": options_hash,
-                "cached_at": hashlib.md5(str(time.time()).encode()).hexdigest()[:8]
-            }]
-        )
-        
-        logger.info(f"✓ Cached Stage 3 advanced features for {len(cv_ids)} CVs")
+        logger.info(f"✓ Cached Stage 3 advanced features for {cached_count} CVs (individually)")
         return True
         
     except Exception as e:
@@ -426,38 +413,47 @@ def cache_advanced_features(jd_hash: str, cv_ids: list, advanced_options: dict, 
 
 def get_cached_advanced_features(jd_hash: str, cv_ids: list, advanced_options: dict) -> Optional[list]:
     """
-    Lấy cached Stage 3 advanced features
+    Lấy cached Stage 3 advanced features - Lấy TỪNG CV riêng lẻ
     
     Args:
         jd_hash: Hash của JD
-        cv_ids: List các CV IDs
+        cv_ids: List các CV IDs cần lấy
         advanced_options: Advanced options được enable
         
     Returns:
-        Optional[list]: Advanced features data nếu có trong cache, None nếu không
+        Optional[list]: Advanced features data nếu TẤT CẢ CVs đều có cache, None nếu thiếu bất kỳ CV nào
     """
     try:
         collection = _get_or_create_collection(ADVANCED_FEATURES_COLLECTION)
         
-        cv_ids_str = "_".join(sorted([str(id) for id in cv_ids]))
-        cv_ids_hash = hashlib.md5(cv_ids_str.encode()).hexdigest()
         options_str = json.dumps(advanced_options, sort_keys=True)
         options_hash = hashlib.md5(options_str.encode()).hexdigest()
         
-        doc_id = f"advanced_{jd_hash[:8]}_{cv_ids_hash[:8]}_{options_hash[:8]}"
+        # Lấy cache từng CV
+        cached_data = []
+        missing_cvs = []
         
-        result = collection.get(
-            ids=[doc_id],
-            include=["documents", "metadatas"]
-        )
+        for cv_id in cv_ids:
+            doc_id = f"advanced_{jd_hash[:16]}_{cv_id}_{options_hash[:8]}"
+            
+            result = collection.get(
+                ids=[doc_id],
+                include=["documents", "metadatas"]
+            )
+            
+            if result['ids'] and len(result['documents']) > 0:
+                cv_advanced = json.loads(result['documents'][0])
+                cached_data.append(cv_advanced)
+            else:
+                missing_cvs.append(cv_id)
         
-        if result['ids'] and len(result['documents']) > 0:
-            advanced_data = json.loads(result['documents'][0])
-            logger.info(f"✓ Cache hit: Stage 3 advanced features for {len(cv_ids)} CVs")
-            return advanced_data
-        
-        logger.info(f"Cache miss: Stage 3 advanced features")
-        return None
+        # Chỉ trả về cache nếu TẤT CẢ CVs đều có cache
+        if len(missing_cvs) == 0 and len(cached_data) == len(cv_ids):
+            logger.info(f"✓ Cache HIT: Stage 3 advanced features for {len(cv_ids)}/{len(cv_ids)} CVs")
+            return cached_data
+        else:
+            logger.info(f"Cache MISS: Stage 3 advanced features - {len(cached_data)}/{len(cv_ids)} CVs cached, missing {len(missing_cvs)} CVs")
+            return None
         
     except Exception as e:
         logger.error(f"Lỗi khi lấy cached advanced features: {e}")
