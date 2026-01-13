@@ -8,7 +8,7 @@ from docx import Document
 
 
 def calculate_file_hash(file_path: Path) -> str:
-    """Tính toán hash SHA256 của file"""
+    """Calculate SHA256 hash of file"""
     sha256_hash = hashlib.sha256()
     with open(file_path, "rb") as f:
         for byte_block in iter(lambda: f.read(4096), b""):
@@ -17,11 +17,11 @@ def calculate_file_hash(file_path: Path) -> str:
 
 
 def generate_safe_filename(original_filename: str, directory: Path) -> Path:
-    """Tạo tên file an toàn, tránh trùng lặp"""
+    """Generate safe filename, avoiding duplicates"""
     safe_filename = original_filename.replace(" ", "_")
     file_path = directory / safe_filename
     
-    # Nếu file đã tồn tại, thêm số vào tên
+    # If file already exists, add number to filename
     counter = 1
     while file_path.exists():
         stem = Path(safe_filename).stem
@@ -33,7 +33,7 @@ def generate_safe_filename(original_filename: str, directory: Path) -> Path:
 
 
 def extract_text_from_pdf(file_path: Path) -> str:
-    """Trích xuất text từ file PDF"""
+    """Extract text from PDF file"""
     try:
         text_content = []
         with open(file_path, "rb") as f:
@@ -42,11 +42,11 @@ def extract_text_from_pdf(file_path: Path) -> str:
                 text_content.append(page.extract_text())
         return "\n".join(text_content)
     except Exception as e:
-        raise Exception(f"Lỗi khi đọc PDF: {str(e)}")
+        raise Exception(f"Error reading PDF: {str(e)}")
 
 
 def extract_text_from_docx(file_path: Path) -> str:
-    """Trích xuất text từ file DOCX"""
+    """Extract text from DOCX file"""
     try:
         doc = Document(file_path)
         text_content = []
@@ -54,11 +54,11 @@ def extract_text_from_docx(file_path: Path) -> str:
             text_content.append(paragraph.text)
         return "\n".join(text_content)
     except Exception as e:
-        raise Exception(f"Lỗi khi đọc DOCX: {str(e)}")
+        raise Exception(f"Error reading DOCX: {str(e)}")
 
 
 def extract_text_from_file(file_path: Path) -> Optional[str]:
-    """Trích xuất text từ file PDF hoặc DOCX dựa vào extension"""
+    """Extract text from PDF or DOCX file based on extension"""
     file_extension = file_path.suffix.lower()
     
     if file_extension == ".pdf":
@@ -71,22 +71,22 @@ def extract_text_from_file(file_path: Path) -> Optional[str]:
 
 def clean_text_for_embedding(text: str) -> str:
     """
-    Làm sạch text trước khi tạo embedding:
-    - Loại bỏ emoji
-    - Loại bỏ ký tự đặc biệt không phải chữ cái, số, khoảng trắng
-    - Chuẩn hóa khoảng trắng
+    Clean text before creating embedding:
+    - Remove emoji
+    - Remove special characters that are not letters, numbers, or whitespace
+    - Normalize whitespace
     
     Args:
-        text: Text cần làm sạch
+        text: Text to clean
         
     Returns:
-        str: Text đã được làm sạch
+        str: Cleaned text
     """
     if not text:
         return ""
     
-    # Remove emoji và ký tự Unicode đặc biệt
-    # Regex pattern để loại bỏ emoji
+    # Remove emoji and special Unicode characters
+    # Regex pattern to remove emoji
     emoji_pattern = re.compile(
         "["
         u"\U0001F600-\U0001F64F"  # emoticons
@@ -100,10 +100,10 @@ def clean_text_for_embedding(text: str) -> str:
     )
     text = emoji_pattern.sub(r'', text)
     
-    # Loại bỏ các ký tự control characters
+    # Remove control characters
     text = re.sub(r'[\x00-\x1F\x7F-\x9F]', '', text)
     
-    # Chuẩn hóa khoảng trắng: nhiều space/tab/newline → single space
+    # Normalize whitespace: multiple space/tab/newline → single space
     text = re.sub(r'\s+', ' ', text)
     
     # Trim leading/trailing whitespace

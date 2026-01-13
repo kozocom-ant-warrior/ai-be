@@ -1,29 +1,29 @@
 # Documentation Directory
 
-Thư mục chứa tài liệu chi tiết về Vector Database Cache implementation.
+This directory contains detailed documentation about the Vector Database Cache implementation.
 
 ## 📚 Files
 
 ### `VECTOR_CACHE_README.md`
-**Quick start guide** - Tổng quan về vector cache implementation.
+**Quick start guide** - Overview of vector cache implementation.
 
-**Nội dung:**
-- ✅ Tình trạng implementation
+**Contents:**
+- ✅ Implementation status
 - 🚀 Quick commands
 - 📊 Cache strategy
 - 💰 Cost savings
 - 🔍 How it works
 
-**Đọc file này trước!**
+**Read this file first!**
 
 ---
 
 ### `CHROMADB_CONNECTION_GUIDE.md`
-**Connection guide** - Chi tiết các cách connect vào ChromaDB.
+**Connection guide** - Details on various ways to connect to ChromaDB.
 
-**Nội dung:**
+**Contents:**
 - 🔌 3 connection modes (Persistent, HTTP, In-Memory)
-- 🔍 4 methods để xem data
+- 🔍 4 methods to view data
 - 🛠️ Tools & Libraries
 - 📊 Inspect ChromaDB structure
 - 🚀 Quick start examples
@@ -32,9 +32,9 @@ Thư mục chứa tài liệu chi tiết về Vector Database Cache implementati
 ---
 
 ### `CHROMADB_VS_FAISS.md`
-**Comparison guide** - So sánh ChromaDB vs Faiss.
+**Comparison guide** - ChromaDB vs Faiss comparison.
 
-**Nội dung:**
+**Contents:**
 - 📊 Feature comparison table
 - 💻 Code examples
 - 🔥 Benchmark results
@@ -42,14 +42,14 @@ Thư mục chứa tài liệu chi tiết về Vector Database Cache implementati
 - 📈 Migration path
 - 🎓 When to use which
 
-**Đọc khi cân nhắc migrate sang Faiss**
+**Read when considering migrating to Faiss**
 
 ---
 
 ### `JD_CACHE_STRATEGY.md`
-**Cache invalidation strategy** - Giải thích fuzzy matching cho JD cache.
+**Cache invalidation strategy** - Explains fuzzy matching for JD cache.
 
-**Nội dung:**
+**Contents:**
 - ❓ Problem statement
 - 💡 Solution (Exact vs Fuzzy matching)
 - 📊 Comparison & trade-offs
@@ -58,14 +58,14 @@ Thư mục chứa tài liệu chi tiết về Vector Database Cache implementati
 - ⚙️ Tuning threshold
 - 📈 Expected savings
 
-**Đọc để hiểu tại sao JD cache dùng fuzzy matching**
+**Read to understand why JD cache uses fuzzy matching**
 
 ---
 
 ### `VECTOR_DB_GUIDE.md`
-**Original implementation guide** - Hướng dẫn tổng quan ban đầu.
+**Original implementation guide** - Initial comprehensive guide.
 
-**Nội dung:**
+**Contents:**
 - 🎯 Purpose
 - 💰 Cost savings
 - 📊 Cache optimization flow
@@ -76,12 +76,12 @@ Thư mục chứa tài liệu chi tiết về Vector Database Cache implementati
 
 ## 🗂️ Reading Order
 
-**Cho người mới:**
+**For beginners:**
 1. `VECTOR_CACHE_README.md` - Quick overview
 2. `CHROMADB_CONNECTION_GUIDE.md` - How to connect & view data
 3. `VECTOR_DB_GUIDE.md` - Detailed implementation
 
-**Cho advanced users:**
+**For advanced users:**
 1. `JD_CACHE_STRATEGY.md` - Understanding fuzzy cache
 2. `CHROMADB_VS_FAISS.md` - Scaling considerations
 
@@ -89,7 +89,7 @@ Thư mục chứa tài liệu chi tiết về Vector Database Cache implementati
 
 ## 🔄 Updates
 
-Khi update implementation:
+When updating implementation:
 1. Update relevant `.md` files
 2. Keep examples in sync with code
 3. Update cost estimates if pricing changes

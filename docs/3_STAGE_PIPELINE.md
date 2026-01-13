@@ -2,9 +2,9 @@
 
 ## 📋 Overview
 
-Hệ thống sử dụng pipeline 3 giai đoạn để matching CVs với Job Description (JD):
+The system uses a 3-stage pipeline to match CVs with Job Description (JD):
 
-1. **STAGE 0**: Pre-filtering với Vector Similarity Search
+1. **STAGE 0**: Pre-filtering with Vector Similarity Search
 2. **STAGE 1**: Requirements Extraction + CV Data Extraction
 3. **STAGE 2**: Deterministic Scoring
 4. **STAGE 3**: Advanced Features Generation
@@ -173,10 +173,10 @@ Hệ thống sử dụng pipeline 3 giai đoạn để matching CVs với Job De
 
 ## 📍 STAGE 0: Pre-filter (Vector Search)
 
-### **Mục đích**
-- Giảm số lượng CVs cần xử lý chi tiết (từ 100 → 50)
-- Sử dụng semantic similarity để lọc CVs liên quan nhất
-- Cache embeddings để tái sử dụng
+### **Purpose**
+- Reduce the number of CVs requiring detailed processing (from 100 → 50)
+- Use semantic similarity to filter the most relevant CVs
+- Cache embeddings for reuse
 
 ### **Input**
 - `cv_data_list`: List of CV objects (text content)
@@ -185,7 +185,7 @@ Hệ thống sử dụng pipeline 3 giai đoạn để matching CVs với Job De
 
 ### **Process**
 
-#### 1. **Tạo JD Embedding**
+#### 1. **Create JD Embedding**
 ```python
 # Call OpenAI text-embedding-3-large
 jd_embedding = vector_db.get_or_create_jd_embedding(jd_text)
@@ -199,10 +199,10 @@ jd_embedding = vector_db.get_or_create_jd_embedding(jd_text)
 - **Doc ID**: `jd_{hash[:16]}`
 - **Stored**: Embedding vector (1536-D)
 
-#### 2. **Tạo CV Embeddings** (for ALL CVs)
+#### 2. **Create CV Embeddings** (for ALL CVs)
 ```python
-# QUAN TRỌNG: Luôn tạo embeddings cho TẤT CẢ CVs (100 CVs)
-# Để cache cho lần sau, không phụ thuộc vào filtering
+# IMPORTANT: Always create embeddings for ALL CVs (100 CVs)
+# To cache for next time, independent of filtering
 for cv in cv_data_list:  # 100 CVs
     vector_db.cache_cv_embedding(cv['file_id'], cv['content'])
 ```
@@ -266,10 +266,10 @@ else:
 
 ## 📍 STAGE 1A: JD Requirements Extraction
 
-### **Mục đích**
-- Extract structured requirements từ JD text
-- Phân loại: must-have vs nice-to-have
-- Cung cấp context cho CV matching
+### **Purpose**
+- Extract structured requirements from JD text
+- Classify: must-have vs nice-to-have
+- Provide context for CV matching
 
 ### **Input**
 - `jd_text`: Job Description text
@@ -293,15 +293,15 @@ response = client.chat.completions.create(
 
 **Prompt Structure:**
 ```
-Phân tích Job Description sau và trích xuất:
-1. Vị trí tuyển dụng
-2. Must-have requirements (bắt buộc)
-3. Nice-to-have requirements (ưu tiên)
-4. Yêu cầu về kinh nghiệm (số năm)
+Analyze the following Job Description and extract:
+1. Position title
+2. Must-have requirements (mandatory)
+3. Nice-to-have requirements (preferred)
+4. Experience requirements (years)
 
 JD Text: {jd_text}
 
-Trả về JSON:
+Return JSON:
 {
   "position": "Senior React Developer",
   "must_have_requirements": ["React 3+ years", "TypeScript", ...],
@@ -327,12 +327,12 @@ Trả về JSON:
     "Agile/Scrum"
   ],
   "experience_years_required": 3,
-  "additional_context": "Ưu tiên ứng viên có kinh nghiệm fintech"
+  "additional_context": "Prefer candidates with fintech experience"
 }
 ```
 
 ### **Cache Strategy**
-- ❌ **KHÔNG cache** (mỗi request có thể có response_requirement khác nhau)
+- ❌ **NO cache** (each request may have different response_requirement)
 - ⏱️ **Processing time**: ~2-5s
 
 ### **Cost**
@@ -344,10 +344,10 @@ Trả về JSON:
 
 ## 📍 STAGE 1B: CV Data Extraction
 
-### **Mục đích**
-- Extract structured data từ CV text
-- Match CV skills/experience với JD requirements
-- Đánh giá matched vs missing requirements
+### **Purpose**
+- Extract structured data from CV text
+- Match CV skills/experience with JD requirements
+- Evaluate matched vs missing requirements
 
 ### **Input**
 - `cv_data_list`: Top 50 CVs (from Stage 0)
@@ -391,8 +391,8 @@ for cv in batch:
 - **Stored**: Extracted JSON (as string)
 - **Metadata**: `file_id`, `content_hash`, `jd_hash`, `extracted_at`
 
-⚠️ **QUAN TRỌNG**: Cache phụ thuộc cả CV và JD
-- JD thay đổi → `jd_hash` mới → Cache MISS → Phải extract lại!
+⚠️ **IMPORTANT**: Cache depends on both CV and JD
+- JD changes → new `jd_hash` → Cache MISS → Must extract again!
 
 #### 3. **Call GPT-4o-mini** (for uncached CVs only)
 ```python
@@ -410,7 +410,7 @@ response = client.chat.completions.create(
 
 **Prompt Structure:**
 ```
-Phân tích CVs sau và đối chiếu với JD requirements:
+Analyze the following CVs and match with JD requirements:
 
 Must-have: ["React 3+ years", "TypeScript", ...]
 Nice-to-have: ["GraphQL", "AWS", ...]
@@ -423,7 +423,7 @@ CV 2:
 
 ...
 
-Trả về JSON array:
+Return JSON array:
 [
   {
     "cv_id": "cv_xxx",
@@ -508,10 +508,10 @@ for cv_data in batch_cv_data:
 
 ## 📍 STAGE 2: Deterministic Scoring
 
-### **Mục đích**
-- Tính điểm cho từng CV dựa trên matched requirements
-- Sắp xếp CVs theo score (cao → thấp)
-- Filter CVs có score = 0
+### **Purpose**
+- Calculate score for each CV based on matched requirements
+- Sort CVs by score (high → low)
+- Filter CVs with score = 0
 
 ### **Input**
 - `extracted_cvs`: List of 50 CV JSONs (from Stage 1B)
@@ -590,7 +590,7 @@ cv_list.sort(key=lambda x: x.get('score', 0), reverse=True)
 - Example: 48 CVs (2 filtered out with score = 0)
 
 ### **Cache Strategy**
-- ❌ **KHÔNG cache** (tính toán nhanh, không cần cache)
+- ❌ **NO cache** (fast computation, no cache needed)
 
 ### **Cost**
 - ✅ **FREE** (no AI calls, pure Python logic)
@@ -600,9 +600,9 @@ cv_list.sort(key=lambda x: x.get('score', 0), reverse=True)
 
 ## 📍 STAGE 3: Advanced Features Generation
 
-### **Mục đích**
-- Generate advanced features cho top N CVs (based on `max_cv_count`)
-- Interview questions tailored cho từng CV
+### **Purpose**
+- Generate advanced features for top N CVs (based on `max_cv_count`)
+- Interview questions tailored for each CV
 - CV presentation comments
 - Certification benefits analysis
 - Rank assessment
@@ -650,10 +650,10 @@ for cv in top_cvs:
 - **Stored**: Advanced features JSON (as string)
 - **Metadata**: `jd_hash`, `cv_id`, `options_hash`, `generated_at`
 
-⚠️ **QUAN TRỌNG**: Cache phụ thuộc JD, CV, VÀ advanced_options
-- JD thay đổi → Cache MISS
-- CV thay đổi → Cache MISS
-- Options thay đổi → Cache MISS
+⚠️ **IMPORTANT**: Cache depends on JD, CV, AND advanced_options
+- JD changes → Cache MISS
+- CV changes → Cache MISS
+- Options change → Cache MISS
 
 #### 3. **Call GPT-4o-mini** (for uncached CVs only)
 ```python
@@ -671,7 +671,7 @@ response = client.chat.completions.create(
 
 **Prompt Structure (if all options enabled):**
 ```
-Tạo advanced features cho CVs sau:
+Generate advanced features for the following CVs:
 
 JD: {jd_text}
 Requirements: {requirements}
@@ -690,7 +690,7 @@ Options enabled:
 - Rank assessment: true
 - Detect Duplicate: true
 
-Trả về JSON array:
+Return JSON array:
 [
   {
     "cv_id": "cv_abc123",
@@ -699,8 +699,8 @@ Trả về JSON array:
       "How do you handle state management in large React applications?",
       "Explain a challenging bug you encountered with TypeScript and how you fixed it."
     ],
-    "cv_presentation_comment": "Ứng viên có profile mạnh với 4 năm kinh nghiệm React và TypeScript. Đáp ứng đầy đủ must-have requirements. Điểm nổi bật là kinh nghiệm với GraphQL và CI/CD. Thiếu kinh nghiệm cloud (AWS/GCP) nhưng không quan trọng.",
-    "cert_comment": "Ứng viên chưa có certification về React hoặc AWS. Đề xuất: AWS Certified Developer Associate sẽ bổ sung kiến thức cloud, tăng giá trị profile lên 15-20%.",
+    "cv_presentation_comment": "Candidate has strong profile with 4 years of React and TypeScript experience. Meets all must-have requirements. Standout points are experience with GraphQL and CI/CD. Lacks cloud experience (AWS/GCP) but not critical.",
+    "cert_comment": "Candidate has no certifications in React or AWS. Recommendation: AWS Certified Developer Associate would complement cloud knowledge, increase profile value by 15-20%.",
     "job_leveling": [
       "Fresher",
       "Junior",
@@ -750,8 +750,8 @@ for cv_item in cv_list:
     "How do you handle state management...",
     "Explain a challenging TypeScript bug..."
   ],
-  "cv_presentation_comment": "Ứng viên có profile mạnh với 4 năm kinh nghiệm...",
-  "cert_comment": "Ứng viên chưa có certification về React hoặc AWS...",
+  "cv_presentation_comment": "Candidate has strong profile with 4 years of experience...",
+  "cert_comment": "Candidate has no certifications in React or AWS...",
   "job_leveling": [
       "Fresher",
       "Junior",
@@ -816,7 +816,7 @@ Total advanced data: 3 cached + 2 new = 5 CVs
 | 3 | Advanced (MISS - jd_hash changed!) | gpt-4o-mini | $1-2 |
 | **TOTAL** | | | **~$3-5** |
 
-⚠️ **Problem**: CV extraction cache phụ thuộc `jd_hash` → JD thay đổi → Cache MISS!
+⚠️ **Problem**: CV extraction cache depends on `jd_hash` → JD changes → Cache MISS!
 
 ---
 
@@ -829,17 +829,17 @@ Total advanced data: 3 cached + 2 new = 5 CVs
 doc_id = f"cv_{cv_hash[:16]}_{jd_hash[:16]}"
 ```
 
-- JD thay đổi từ "2+ years" → "3+ years"
-- `jd_hash` thay đổi
-- **Cache MISS** cho tất cả 50 CVs
-- Phải extract lại → Tốn $2-3
+- JD changes from "2+ years" → "3+ years"
+- `jd_hash` changes
+- **Cache MISS** for all 50 CVs
+- Must extract again → Costs $2-3
 
 **Trade-offs:**
 
 | Option | Pros | Cons |
 |--------|------|------|
-| **Keep jd_hash** (current) | ✅ Extraction chính xác cho từng JD<br>✅ Must-have matching theo JD cụ thể | ❌ Tốn token khi đổi JD<br>❌ Cache kém hiệu quả |
-| **Remove jd_hash** | ✅ Tiết kiệm token (cache cross-JD)<br>✅ Faster response | ❌ Extraction generic<br>❌ Matching kém chính xác |
+| **Keep jd_hash** (current) | ✅ Accurate extraction for each JD<br>✅ Must-have matching specific to JD | ❌ Token cost when changing JD<br>❌ Less efficient cache |
+| **Remove jd_hash** | ✅ Save tokens (cache cross-JD)<br>✅ Faster response | ❌ Generic extraction<br>❌ Less accurate matching |
 
 **Current decision**: Keep jd_hash for accuracy
 
@@ -851,8 +851,8 @@ doc_id = f"advanced_{jd_hash[:16]}_{cv_id}_{options_hash[:8]}"
 ```
 
 - User toggle `interviewQuestions`: false → true
-- `options_hash` thay đổi
-- **Cache MISS** cho tất cả 5 CVs
+- `options_hash` changes
+- **Cache MISS** for all 5 CVs
 
 **Workaround**: Encourage users to decide options upfront
 
@@ -873,7 +873,7 @@ STAGE3_BATCH_SIZE = 1  # ✅ No truncation
 **Problem:** 
 Complex nested JSON structure (cv_presentation_comment object with 5 fields) + lengthy prompts caused GPT to truncate responses even with max_tokens=16000.
 
-**Solution:**
+**Solution:
 1. Reduced batch size from 5 → 1 CV per batch
 2. Optimized prompts (removed verbose examples, shortened requirements)
 3. max_tokens=6000 (sufficient for 1 CV)
@@ -916,7 +916,7 @@ PRE_FILTER_THRESHOLD = 50
 - < 50 CVs: No filtering (process all)
 - > 50 CVs: Filter to top 50
 
-**Limitation**: Không dynamic based on JD complexity hoặc user requirements
+**Limitation**: Not dynamic based on JD complexity or user requirements
 
 ---
 
@@ -968,16 +968,16 @@ PRE_FILTER_THRESHOLD = 50
 
 ### **For Users**
 
-1. **Minimize JD changes**: Reuse JD text để maximize cache hit rate
-2. **Decide options upfront**: Tránh toggle advanced_options nhiều lần
-3. **Upload CVs in batches**: Embeddings cache cross-JD, upload nhiều CVs 1 lần
+1. **Minimize JD changes**: Reuse JD text to maximize cache hit rate
+2. **Decide options upfront**: Avoid toggling advanced_options multiple times
+3. **Upload CVs in batches**: Embeddings cache cross-JD, upload many CVs at once
 4. **Reuse JDs**: Same JD + same CVs → 99% cost savings
 
 ### **For Developers**
 
-1. **Monitor cache hit rates**: Log cache statistics để optimize
+1. **Monitor cache hit rates**: Log cache statistics to optimize
 2. **Adjust batch size**: 
-   - Stage 1B: BATCH_SIZE = 5 optimal cho GPT-4o-mini
+   - Stage 1B: BATCH_SIZE = 5 optimal for GPT-4o-mini
    - Stage 3: STAGE3_BATCH_SIZE = 1 for complex JSON structures
 3. **Handle rate limits**: Implement exponential backoff retry
 4. **Validate JSON parsing**: Always handle `json.JSONDecodeError`

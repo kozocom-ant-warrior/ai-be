@@ -370,44 +370,44 @@ The `tools/` directory contains helpful scripts for development and debugging:
 
 ```bash
 # Inspect cache (view all cached embeddings)
-uv run python tools/cache/chroma_inspector.py
+uv run python tools/chroma_inspector.py
 
 # Clear all cache
-uv run python tools/cache/clear_cache.py
+uv run python tools/clear_cache.py
 
 # Debug cache hits/misses
-uv run python tools/cache/debug_cache.py
+uv run python tools/debug_cache.py
 ```
 
 ### Testing
 
 ```bash
 # Test ChromaDB connection
-uv run python tools/cache/test_chroma_connection.py
+uv run python tools/test_chroma_connection.py
 
 # Test two-stage pipeline
-uv run python tools/testing/test_two_stage.py
+uv run python tools/test_two_stage.py
 
 # Test thinking API endpoint
-bash tools/testing/test_thinking.sh
+bash tools/test_thinking.sh
 
 # Test JD text input
-uv run python tools/testing/test_jd_text_input.py
+uv run python tools/test_jd_text_input.py
 
 # Test emoji cleaning
-uv run python tools/testing/test_emoji_cleaning.py
+uv run python tools/test_emoji_cleaning.py
 ```
 
 ### Tool Descriptions
 
-- **cache/chroma_inspector.py**: View all cached CV/JD embeddings in ChromaDB
-- **cache/clear_cache.py**: Delete all cached embeddings (use when changing models)
-- **cache/debug_cache.py**: Check cache hit/miss statistics
-- **cache/test_chroma_connection.py**: Verify ChromaDB is working
-- **testing/test_two_stage.py**: Test the 2-stage matching pipeline
-- **testing/test_thinking.sh**: Quick API test with curl
-- **testing/test_jd_text_input.py**: Test JD text extraction
-- **testing/test_emoji_cleaning.py**: Test emoji removal from text
+- **chroma_inspector.py**: View all cached CV/JD embeddings in ChromaDB
+- **clear_cache.py**: Delete all cached embeddings (use when changing models)
+- **debug_cache.py**: Check cache hit/miss statistics
+- **test_chroma_connection.py**: Verify ChromaDB is working
+- **test_two_stage.py**: Test the 2-stage matching pipeline
+- **test_thinking.sh**: Quick API test with curl
+- **test_jd_text_input.py**: Test JD text extraction
+- **test_emoji_cleaning.py**: Test emoji removal from text
 
 See `tools/README.md` for more details.
 
@@ -455,16 +455,16 @@ lsof -ti:8000 | xargs kill -9
 
 ```bash
 # Clear all cache
-uv run python tools/cache/clear_cache.py
+uv run python tools/clear_cache.py
 
 # Or clear programmatically
 uv run python -c "from db.vector_db import clear_cache; clear_cache(); print('✅ Cache cleared')"
 
 # Inspect cache contents
-uv run python tools/cache/chroma_inspector.py
+uv run python tools/chroma_inspector.py
 
 # Debug cache hits/misses
-uv run python tools/cache/debug_cache.py
+uv run python tools/debug_cache.py
 ```
 
 ### Slow performance
@@ -482,13 +482,13 @@ uv run python tools/cache/debug_cache.py
 uv run python -m py_compile main.py config.py utils.py models.py routers/*.py db/*.py
 
 # Test ChromaDB connection
-uv run python tools/cache/test_chroma_connection.py
+uv run python tools/test_chroma_connection.py
 
 # Test two-stage pipeline
-uv run python tools/testing/test_two_stage.py
+uv run python tools/test_two_stage.py
 
 # Test API endpoint
-bash tools/testing/test_thinking.sh
+bash tools/test_thinking.sh
 ```
 
 ### Development workflow
@@ -507,17 +507,17 @@ curl http://localhost:8000/docs
 ### Debug tips
 
 ```bash
-# Enable verbose logging (use uvicorn with log-level)
-uv run uvicorn main:app --log-level debug --reload
+# Enable verbose logging
+uv run python main.py --log-level debug
 
 # Check cache statistics
-uv run python tools/cache/debug_cache.py
+uv run python tools/debug_cache.py
 
 # Inspect ChromaDB contents
-uv run python tools/cache/chroma_inspector.py
+uv run python tools/chroma_inspector.py
 
 # Clear cache and restart fresh
-uv run python tools/cache/clear_cache.py
+uv run python tools/clear_cache.py
 uv run python main.py
 ```
 
@@ -547,8 +547,106 @@ Detailed documentation is available in the `docs/` directory:
 - **[ENV_GUIDE.md](docs/ENV_GUIDE.md)** - Environment variables reference
 - **[docs/README.md](docs/README.md)** - Documentation index
 
+## �📦 Dependencies
 
-## 📄 License
+See `requirements.txt` for full list of dependencies:
+
+- `fastapi>=0.128.0` - Web framework
+- `uvicorn[standard]==0.24.0` - ASGI server
+- `python-multipart==0.0.6` - File upload support
+- `openai>=1.54.0` - OpenAI API client for CV matching
+- `PyPDF2>=3.0.0` - Read and extract text from PDF files
+- `python-docx>=1.1.0` - Read and extract text from DOCX files
+- `python-dotenv>=1.0.0` - Read environment variables from `.env` file
+
+## 🎯 Main Features
+
+### 1. File upload and management
+
+- Upload multiple CVs at once (PDF, DOCX, DOC)
+- Upload JD (PDF only, 1 file at a time)
+- Automatically extract and save text content from CVs to database
+- Calculate SHA256 hash for each file
+- Manage metadata (filename, size, content_type, upload time)
+
+### 2. CV-JD Matching (AI Matching)
+
+- Use OpenAI to evaluate compatibility between CVs and JD
+- Return score (0-100) for each CV
+- List matched and missing requirements
+- Support advanced options:
+  - `cvPresentation`: Evaluate CV professionalism
+  - `interviewQuestions`: Suggest interview questions
+  - `jobLeveling`: Assess job level
+  - `certBenefit`: Analyze certificate value
+
+## 🐛 Troubleshooting
+
+### Error: Module not found
+
+```bash
+# Ensure dependencies are installed
+pip install -r requirements.txt
+```
+
+### Error: Port already in use
+
+```bash
+# Change port
+uvicorn main:app --port 8001
+```
+
+### Error: OPENAI_API_KEY not found
+
+- Ensure `.env` file is created in the project root directory
+- Check that `.env` file contains `OPENAI_API_KEY=your_key_here`
+- This error only affects the `/thinking` endpoint, other endpoints will still work normally
+
+### Database not created
+
+- Database will be automatically created when the application starts
+- Check write permissions in the project directory
+- See logs at startup for detailed information
+
+### Error extracting text from CV
+
+- Ensure PDF/DOCX files are not encrypted or protected
+- Some scanned PDF files (images) may not have extractable text
+- Files will still be saved successfully, just no text content in database
+
+### Error calling OpenAI API
+
+- Check that API key is valid and has sufficient credit
+- Check model name in `.env` (default: `gpt-4o`)
+- See console logs for error details
+
+## � Documentation
+
+Detailed documentation is available in the `docs/` directory:
+
+### Architecture & Design
+
+- **[3_STAGE_PIPELINE.md](docs/3_STAGE_PIPELINE.md)** - Three-stage CV-JD matching pipeline explained
+- **[VECTOR_CACHE_README.md](docs/VECTOR_CACHE_README.md)** - Vector embedding cache strategy
+- **[JD_CACHE_STRATEGY.md](docs/JD_CACHE_STRATEGY.md)** - Job description caching approach
+
+### Multi-Language Features
+
+- **[MULTI_LANGUAGE_PROMPTS.md](docs/MULTI_LANGUAGE_PROMPTS.md)** - How to use multi-language prompts (en/vi/ja)
+- **[MULTI_LANGUAGE_CACHE.md](docs/MULTI_LANGUAGE_CACHE.md)** - Language-specific cache strategy
+
+### Database & Storage
+
+- **[VECTOR_DB_GUIDE.md](docs/VECTOR_DB_GUIDE.md)** - ChromaDB usage guide
+- **[CHROMADB_CONNECTION_GUIDE.md](docs/CHROMADB_CONNECTION_GUIDE.md)** - ChromaDB connection setup
+- **[CHROMADB_VS_FAISS.md](docs/CHROMADB_VS_FAISS.md)** - ChromaDB vs FAISS comparison
+
+### Configuration
+
+- **[ENV_GUIDE.md](docs/ENV_GUIDE.md)** - Environment variables reference
+- **[docs/README.md](docs/README.md)** - Documentation index
+
+## �📄 License
 
 [Add your license here]
 

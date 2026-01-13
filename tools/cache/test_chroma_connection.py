@@ -2,7 +2,7 @@
 """
 Test ChromaDB Connection
 
-Script đơn giản để test connection và xem data trong ChromaDB
+Simple script to test connection and view data in ChromaDB
 """
 
 import chromadb
@@ -10,7 +10,7 @@ from pathlib import Path
 import sys
 
 # Path to ChromaDB (relative to project root)
-CHROMA_DB_PATH = Path(__file__).parent.parent / "db" / "chroma_db"
+CHROMA_DB_PATH = Path(__file__).parent.parent.parent / "db" / "chroma_db"
 
 
 def test_connection():
@@ -24,9 +24,9 @@ def test_connection():
     if not CHROMA_DB_PATH.exists():
         print(f"❌ ChromaDB not found at: {CHROMA_DB_PATH}")
         print()
-        print("💡 Chưa có cache. Để tạo cache:")
-        print("   1. Upload CVs qua API: POST /cv/upload")
-        print("   2. Chạy matching: POST /thinking")
+        print("💡 No cache yet. To create cache:")
+        print("   1. Upload CVs via API: POST /cv/upload")
+        print("   2. Run matching: POST /thinking")
         print()
         return False
     
@@ -47,9 +47,9 @@ def test_connection():
         if not collections:
             print("   (No collections yet)")
             print()
-            print("💡 Collections sẽ được tạo tự động khi:")
-            print("   - Upload CV lần đầu → 'cv_embeddings'")
-            print("   - Upload JD lần đầu → 'jd_embeddings'")
+            print("💡 Collections will be auto-created when:")
+            print("   - First CV upload → 'cv_embeddings'")
+            print("   - First JD upload → 'jd_embeddings'")
             return True
         
         total_embeddings = 0

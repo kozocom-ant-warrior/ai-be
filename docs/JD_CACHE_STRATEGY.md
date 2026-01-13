@@ -13,11 +13,11 @@
 
 # Original Document (For Reference)
 
-## ❓ Vấn đề
+## ❓ Problem
 
-JD thường có **minor changes** (sửa 1-2 chữ) → Nếu dùng strict hash matching thì mất cache → Tốn tiền!
+JD often has **minor changes** (1-2 word edits) → If using strict hash matching, cache is lost → Costs money!
 
-### Ví dụ:
+### Example:
 ```
 JD v1: "Cần 3 năm kinh nghiệm Python, Django"
 JD v2: "Cần 4 năm kinh nghiệm Python, Django"  # Chỉ khác 1 chữ!

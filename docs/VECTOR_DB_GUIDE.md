@@ -1,44 +1,44 @@
 # Vector Database Cache Guide
 
-## 🎯 Mục đích
+## 🎯 Purpose
 
-Tối ưu hóa **chi phí** và **tốc độ** khi matching CV với JD bằng cách cache embeddings trong ChromaDB.
+Optimize **cost** and **speed** when matching CV with JD by caching embeddings in ChromaDB.
 
-## 💰 Tiết kiệm chi phí
+## 💰 Cost Savings
 
-### Trước khi có cache:
+### Before cache:
 ```
-100 CVs × 1 JD matching = 100 API calls mỗi lần
-Chi phí: ~$0.02/1M tokens × 100 docs × N lần matching
+100 CVs × 1 JD matching = 100 API calls per match
+Cost: ~$0.02/1M tokens × 100 docs × N times matching
 ```
 
-### Sau khi có cache:
+### After cache:
 ```
-Lần 1: 100 API calls (tạo cache)
-Lần 2+: 0 API calls (dùng cache) ✅
-Chi phí: Chỉ tốn tiền lần đầu, sau đó FREE
+1st time: 100 API calls (create cache)
+2nd time+: 0 API calls (use cache) ✅
+Cost: Only costs money first time, then FREE
 ```
 
 ## 📊 Cache Optimization Flow
 
-### Flow hiện tại (KHÔNG cache):
+### Current Flow (NO cache):
 ```
 User Request
     ↓
-Extract JD text → API call tạo JD embedding 💰
+Extract JD text → API call to create JD embedding 💰
     ↓
-Extract 100 CV texts → 100 API calls tạo embeddings 💰💰💰
+Extract 100 CV texts → 100 API calls to create embeddings 💰💰💰
     ↓
-Tính cosine similarity
+Calculate cosine similarity
     ↓
 Return top 50 CVs
 ```
 
-### Flow MỚI (CÓ cache):
+### NEW Flow (WITH cache):
 ```
 User Request
     ↓
-Extract JD text → API call tạo JD embedding 💰
+Extract JD text → API call to create JD embedding 💰
     ↓
 Extract 100 CV texts
     ↓
@@ -48,26 +48,26 @@ Extract 100 CV texts
     ├─ CV4: Check cache → FOUND ✅ (FREE)
     └─ ... (95% cache hit rate = 95% FREE!)
     ↓
-Tính cosine similarity
+Calculate cosine similarity
     ↓
 Return top 50 CVs
 ```
 
 ## 🔧 Implementation Details
 
-### 1. Cache ở bước nào?
+### 1. At which step to cache?
 
-**Bước 1: Cache CV Embeddings** (quan trọng nhất)
-- **Khi nào**: Ngay sau khi tạo embedding cho CV lần đầu
-- **Tại sao**: CVs không thay đổi thường xuyên, dùng lại nhiều lần
-- **Lợi ích**: Tiết kiệm 90-95% API calls
+**Step 1: Cache CV Embeddings** (most important)
+- **When**: Right after creating embedding for CV first time
+- **Why**: CVs don't change often, reused many times
+- **Benefit**: Save 90-95% API calls
 
-**Bước 2: Cache JD Embeddings** (tùy chọn)
-- **Khi nào**: Nếu JD được dùng nhiều lần (cùng 1 vị trí tuyển dụng)
-- **Tại sao**: JD có thể dùng lại cho nhiều batch CVs
-- **Lợi ích**: Tiết kiệm thêm vài API calls
+**Step 2: Cache JD Embeddings** (optional)
+- **When**: If JD used multiple times (same job position)
+- **Why**: JD can be reused for many CV batches
+- **Benefit**: Save a few more API calls
 
-### 2. Cách connect với database.py
+### 2. How to Connect with database.py
 
 **Architecture:**
 ```
@@ -83,26 +83,26 @@ SQLite (database.py)          ChromaDB (vector_db.py)
                                 └─ metadata: {filename, content_length, hash}
 ```
 
-**Workflow kết hợp:**
+**Combined Workflow:**
 ```python
-# 1. Lấy CVs từ SQLite
+# 1. Get CVs from SQLite
 cvs = get_all_files(file_type='cv')  # database.py
 
-# 2. Cho mỗi CV, kiểm tra cache
+# 2. For each CV, check cache
 for cv in cvs:
-    # Thử lấy từ ChromaDB trước
+    # Try to get from ChromaDB first
     embedding = vector_db.get_cached_cv_embedding(cv['id'], cv['content'])
     
     if not embedding:
         # Cache miss → Call OpenAI API
         embedding = get_embedding(cv['content'])
-        # Lưu vào cache
+        # Save to cache
         vector_db.cache_cv_embedding(cv['id'], cv['filename'], cv['content'], embedding)
 ```
 
 ## 📝 Usage Examples
 
-### Example 1: Upload CV và auto-cache embedding
+### Example 1: Upload CV and auto-cache embedding
 ```python
 from vector_db import cache_cv_embedding
 from database import save_file_to_database
@@ -113,20 +113,20 @@ file_id = save_file_to_database(...)
 # Extract text
 cv_text = extract_text_from_file(file_path)
 
-# Tạo embedding
+# Create embedding
 embedding = get_embedding(cv_text)
 
-# Cache ngay
+# Cache immediately
 cache_cv_embedding(file_id, filename, cv_text, embedding)
 ```
 
-### Example 2: Matching với cache
+### Example 2: Matching with cache
 ```python
-# Lần 1: Cache miss → Call API
+# 1st time: Cache miss → Call API
 embedding1 = get_embedding(cv_text, cache_id=1, cache_type='cv')
 # 📊 Cache stats: 0 hits, 1 misses
 
-# Lần 2: Cache hit → FREE
+# 2nd time: Cache hit → FREE
 embedding2 = get_embedding(cv_text, cache_id=1, cache_type='cv')
 # 📊 Cache stats: 1 hits, 0 misses (100% hit rate!)
 ```
@@ -144,14 +144,14 @@ print(stats)
 # }
 ```
 
-### Example 4: Clear cache (khi cần)
+### Example 4: Clear cache (when needed)
 ```python
 from vector_db import clear_cache
 
-# Xóa cache CVs
+# Clear cache CVs
 clear_cache('cv_embeddings')
 
-# Xóa tất cả
+# Clear all
 clear_cache()
 ```
 
@@ -161,13 +161,13 @@ clear_cache()
 # Install ChromaDB
 pip install chromadb>=0.4.0
 
-# hoặc
+# or
 pip install -r requirements.txt
 ```
 
 ## ⚙️ Configuration
 
-ChromaDB sẽ tự động tạo folder `chroma_db/` bên cạnh file `data.db`:
+ChromaDB will automatically create folder `chroma_db/` next to file `data.db`:
 ```
 ai-be/
 ├── data.db              ← SQLite (metadata)
@@ -179,19 +179,19 @@ ai-be/
 
 ## 🔍 Verification
 
-Để kiểm tra cache có hoạt động:
+To verify cache is working:
 ```python
-# Xem logs
-# Lần 1: 🔄 Generating new embedding via OpenAI API...
-# Lần 2: 📦 Using cached embedding for cv 123
+# View logs
+# 1st time: 🔄 Generating new embedding via OpenAI API...
+# 2nd time: 📦 Using cached embedding for cv 123
 ```
 
 ## ⚠️ Important Notes
 
-1. **Cache invalidation**: Nếu CV content thay đổi, cache tự động invalid (dùng MD5 hash)
-2. **Storage**: ChromaDB lưu persistent, không mất sau khi restart
+1. **Cache invalidation**: If CV content changes, cache automatically invalidates (using MD5 hash)
+2. **Storage**: ChromaDB saves persistently, not lost after restart
 3. **Performance**: Cache hit = ~instant (< 1ms), API call = ~500-1000ms
-4. **Cost**: 1000 CVs × 1 matching với 95% cache hit = chỉ tốn 50 API calls thay vì 1000!
+4. **Cost**: 1000 CVs × 1 matching with 95% cache hit = only costs 50 API calls instead of 1000!
 
 ## 📈 Expected Results
 

@@ -1,4 +1,4 @@
-"""Routes cho Thinking endpoint - đối chiếu CV với JD"""
+"""Routes for Thinking endpoint - matching CVs with JD"""
 import logging
 import json
 import numpy as np
@@ -10,18 +10,18 @@ from typing import List, Dict, Optional
 from fastapi import APIRouter, HTTPException, status, Request
 from openai import OpenAI
 from db.database import get_all_files
-from config import CV_DIRECTORY, OPENAI_API_KEY, OPENAI_MODEL, OPENAI_MINI_MODEL, OPENAI_EMBEDDING_MODEL
+from config import CV_DIRECTORY, OPENAI_API_KEY, OPENAI_MODEL, OPENAI_MINI_MODEL, OPENAI_EMBEDDING_MODEL, PROMPT_LANGUAGE
 from prompts import get_cv_matching_prompt, get_system_message, format_cv_contents, get_extraction_prompt, get_cv_extraction_prompt, get_stage3_advanced_prompt
 from utils import clean_text_for_embedding
 from db import vector_db
 
-# Cấu hình logging
+# Logging configuration
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
-# Cấu hình OpenAI
+# OpenAI configuration
 if not OPENAI_API_KEY:
-    raise ValueError("OPENAI_API_KEY không được tìm thấy trong biến môi trường. Vui lòng tạo file .env và thêm OPENAI_API_KEY")
+    raise ValueError("OPENAI_API_KEY not found in environment variables. Please create .env file and add OPENAI_API_KEY")
 
 client = OpenAI(api_key=OPENAI_API_KEY)
 
@@ -31,14 +31,14 @@ router = APIRouter(prefix="/thinking", tags=["Thinking"])
 class CVScoringEngine:
     """
     Stage 2: Deterministic scoring engine
-    Tính điểm dựa trên structured data từ Stage 1
+    Calculates scores based on structured data from Stage 1
     """
     
     def __init__(self, requirements: dict, advanced_options: dict = None):
         """
         Args:
-            requirements: Requirements từ JD (output của Stage 1)
-            advanced_options: Tùy chọn nâng cao
+            requirements: Requirements from JD (output of Stage 1)
+            advanced_options: Advanced options
         """
         self.requirements = requirements
         self.advanced_options = advanced_options or {}
@@ -47,37 +47,37 @@ class CVScoringEngine:
     
     def calculate_score(self, cv_data: dict) -> dict:
         """
-        Tính điểm cho 1 CV dựa trên extracted data
+        Calculate score for a CV based on extracted data
         
         Args:
-            cv_data: CV data từ Stage 1 (bao gồm must_have_matched, nice_to_have_matched)
+            cv_data: CV data from Stage 1 (includes must_have_matched, nice_to_have_matched)
         
         Returns:
-            dict: Kết quả scoring với score, matched_requirements, missing_requirements
+            dict: Scoring results with score, matched_requirements, missing_requirements
         """
-        # Đếm must-have matched
+        # Count must-have matched
         must_have_matched = [m for m in cv_data.get('must_have_matched', []) if m.get('matched')]
         must_have_missing = [m for m in cv_data.get('must_have_matched', []) if not m.get('matched')]
         
-        # Đếm nice-to-have matched
+        # Count nice-to-have matched
         nice_to_have_matched = [m for m in cv_data.get('nice_to_have_matched', []) if m.get('matched')]
         
-        # Tính % must-have đạt được
+        # Calculate must-have percentage
         if self.must_have_count > 0:
             must_have_percentage = len(must_have_matched) / self.must_have_count
         else:
-            must_have_percentage = 1.0  # Nếu không có must-have thì coi như đạt 100%
+            must_have_percentage = 1.0  # If no must-haves, consider 100%
         
-        # Base score từ must-have (0-90 điểm)
+        # Base score from must-have (0-90 points)
         base_score = must_have_percentage * 90
         
-        # Bonus từ nice-to-have (0-10 điểm)
+        # Bonus from nice-to-have (0-10 points)
         if self.nice_to_have_count > 0:
             nice_to_have_bonus = (len(nice_to_have_matched) / self.nice_to_have_count) * 10
         else:
             nice_to_have_bonus = 0
         
-        # Tổng điểm
+        # Total score
         total_score = min(100, base_score + nice_to_have_bonus)
         
         # Apply stricter rules
@@ -136,25 +136,25 @@ class CVScoringEngine:
                           must_matched: int, must_total: int,
                           nice_matched: int, nice_total: int) -> str:
         """Build mapping description"""
-        candidate_name = cv_data.get('candidate_name', 'Ứng viên')
+        candidate_name = cv_data.get('candidate_name', 'Candidate')
         
         if must_have_pct >= 1.0:
-            desc = f"{candidate_name} đáp ứng đầy đủ {must_total}/{must_total} yêu cầu bắt buộc."
+            desc = f"{candidate_name} fully meets {must_total}/{must_total} must-have requirements."
         elif must_have_pct >= 0.8:
-            desc = f"{candidate_name} đáp ứng {must_matched}/{must_total} yêu cầu bắt buộc (thiếu {must_total - must_matched})."
+            desc = f"{candidate_name} meets {must_matched}/{must_total} must-have requirements (missing {must_total - must_matched})."
         elif must_have_pct >= 0.5:
-            desc = f"{candidate_name} chỉ đáp ứng {must_matched}/{must_total} yêu cầu bắt buộc, thiếu một số yêu cầu quan trọng."
+            desc = f"{candidate_name} only meets {must_matched}/{must_total} must-have requirements, missing some important requirements."
         else:
-            desc = f"{candidate_name} chưa đáp ứng đủ yêu cầu, chỉ có {must_matched}/{must_total} yêu cầu bắt buộc."
+            desc = f"{candidate_name} does not meet sufficient requirements, only has {must_matched}/{must_total} must-have requirements."
         
         if nice_total > 0:
-            desc += f" Có {nice_matched}/{nice_total} kỹ năng ưu tiên."
+            desc += f" Has {nice_matched}/{nice_total} nice-to-have skills."
         
         return desc
 
 
 def extract_text_from_pdf(file_path: Path) -> str:
-    """Đọc nội dung text từ file PDF"""
+    """Extract text content from PDF file"""
     try:
         import PyPDF2
         text = ""
@@ -164,7 +164,7 @@ def extract_text_from_pdf(file_path: Path) -> str:
                 text += page.extract_text() + "\n"
         return text.strip()
     except ImportError:
-        logger.warning("PyPDF2 chưa được cài đặt, thử pypdf...")
+        logger.warning("PyPDF2 not installed, trying pypdf...")
         try:
             import pypdf
             text = ""
@@ -174,33 +174,33 @@ def extract_text_from_pdf(file_path: Path) -> str:
                     text += page.extract_text() + "\n"
             return text.strip()
         except ImportError:
-            logger.error("Không tìm thấy thư viện đọc PDF (PyPDF2 hoặc pypdf)")
+            logger.error("PDF library not found (PyPDF2 or pypdf)")
             return ""
     except Exception as e:
-        logger.error(f"Lỗi khi đọc PDF {file_path}: {e}")
+        logger.error(f"Error reading PDF {file_path}: {e}")
         return ""
 
 
 def extract_text_from_docx(file_path: Path) -> str:
-    """Đọc nội dung text từ file DOCX"""
+    """Extract text content from DOCX file"""
     try:
         from docx import Document
         doc = Document(file_path)
         text = "\n".join([paragraph.text for paragraph in doc.paragraphs])
         return text.strip()
     except ImportError:
-        logger.error("python-docx chưa được cài đặt")
+        logger.error("python-docx not installed")
         return ""
     except Exception as e:
-        logger.error(f"Lỗi khi đọc DOCX {file_path}: {e}")
+        logger.error(f"Error reading DOCX {file_path}: {e}")
         return ""
 
 
 def extract_text_from_cv(file_path: str) -> str:
-    """Đọc nội dung text từ file CV (PDF hoặc DOCX)"""
+    """Extract text content from CV file (PDF or DOCX)"""
     path = Path(file_path)
     if not path.exists():
-        logger.warning(f"File không tồn tại: {file_path}")
+        logger.warning(f"File does not exist: {file_path}")
         return ""
     
     extension = path.suffix.lower()
@@ -209,23 +209,23 @@ def extract_text_from_cv(file_path: str) -> str:
     elif extension in [".docx", ".doc"]:
         return extract_text_from_docx(path)
     else:
-        logger.warning(f"Định dạng file không được hỗ trợ: {extension}")
+        logger.warning(f"Unsupported file format: {extension}")
         return ""
 
 
 def get_embedding(text: str, cache_id: Optional[int] = None, cache_type: Optional[str] = None) -> list:
     """
-    Tạo embedding vector cho text sử dụng OpenAI Embeddings API với cache
+    Create embedding vector for text using OpenAI Embeddings API with cache
     
     Args:
-        text: Text cần tạo embedding
-        cache_id: ID để cache (file_id cho CV/JD)
-        cache_type: Loại cache ('cv' hoặc 'jd')
+        text: Text to create embedding for
+        cache_id: ID for cache (file_id for CV/JD)
+        cache_type: Cache type ('cv' or 'jd')
         
     Returns:
-        list: Embedding vector (1536 chiều)
+        list: Embedding vector (1536 dimensions)
     """
-    # Kiểm tra cache nếu có cache_id và cache_type
+    # Check cache if cache_id and cache_type are provided
     if cache_id and cache_type:
         if cache_type == 'cv':
             cached = vector_db.get_cached_cv_embedding(cache_id, text)
@@ -238,10 +238,10 @@ def get_embedding(text: str, cache_id: Optional[int] = None, cache_type: Optiona
             logger.info(f"📦 Using cached embedding for {cache_type} {cache_id}")
             return cached
     
-    # Không có cache, tạo mới qua API
+    # No cache, create new via API
     try:
         logger.info(f"🔄 Generating new embedding via OpenAI API ({OPENAI_EMBEDDING_MODEL})...")
-        # Clean text trước khi gửi API (loại bỏ emoji, ký tự đặc biệt)
+        # Clean text before sending to API (remove emojis, special characters)
         cleaned_text = clean_text_for_embedding(text)
         response = client.embeddings.create(
             model=OPENAI_EMBEDDING_MODEL,
@@ -249,7 +249,7 @@ def get_embedding(text: str, cache_id: Optional[int] = None, cache_type: Optiona
         )
         embedding = response.data[0].embedding
         
-        # Lưu vào cache nếu có cache_id và cache_type
+        # Save to cache if cache_id and cache_type are provided
         if cache_id and cache_type and embedding:
             filename = f"{cache_type}_{cache_id}"
             if cache_type == 'cv':
@@ -259,17 +259,17 @@ def get_embedding(text: str, cache_id: Optional[int] = None, cache_type: Optiona
         
         return embedding
     except Exception as e:
-        logger.error(f"Lỗi khi tạo embedding: {e}")
+        logger.error(f"Error creating embedding: {e}")
         return []
 
 
 def cosine_similarity(vec1: list, vec2: list) -> float:
     """
-    Tính cosine similarity giữa 2 vectors
+    Calculate cosine similarity between 2 vectors
     
     Args:
-        vec1: Vector thứ nhất
-        vec2: Vector thứ hai
+        vec1: First vector
+        vec2: Second vector
         
     Returns:
         float: Cosine similarity (0-1)
@@ -293,40 +293,47 @@ def cosine_similarity(vec1: list, vec2: list) -> float:
 
 def pre_filter_cvs_by_similarity(cv_data_list: list, jd_text: str, response_requirement: str, top_n: int = 50) -> list:
     """
-    Pre-filter CVs bằng vector similarity
+    Pre-filter CVs using vector similarity
     
     Args:
-        cv_data_list: Danh sách tất cả CVs
+        cv_data_list: List of all CVs
         jd_text: Job Description
-        response_requirement: Yêu cầu phản hồi
-        top_n: Số lượng CVs muốn lấy
+        response_requirement: Response requirement
+        top_n: Number of CVs to return
         
     Returns:
-        list: Top N CVs có similarity cao nhất
+        list: Top N CVs with highest similarity
     """
     try:
         logger.info("=" * 80)
-        logger.info("STAGE 1: PRE-FILTERING VỚI VECTOR SIMILARITY")
+        logger.info("STAGE 1: PRE-FILTERING WITH VECTOR SIMILARITY")
         logger.info("=" * 80)
         
-        # Cache JD embedding riêng
-        # Dùng MD5 hash của JD text làm cache_id
-        jd_hash = hashlib.md5(jd_text.encode('utf-8')).hexdigest()
-        jd_cache_id = int(jd_hash[:8], 16)  # Lấy 8 ký tự đầu convert sang int
+        # Cache JD embedding separately
+        # Use MD5 hash of JD text + PROMPT_LANGUAGE as cache_id
+        jd_cache_key = f"{jd_text}_{PROMPT_LANGUAGE}"
+        jd_hash = hashlib.md5(jd_cache_key.encode('utf-8')).hexdigest()
+        jd_cache_id = int(jd_hash[:8], 16)  # Take first 8 chars and convert to int
         
-        logger.info(f"Đang tạo embedding cho JD (với cache)...")
+        logger.info(f"🔑 JD Cache Key Debug:")
+        logger.info(f"  JD text length: {len(jd_text)} chars")
+        logger.info(f"  JD text (first 100 chars): {jd_text[:100]}")
+        logger.info(f"  PROMPT_LANGUAGE: {PROMPT_LANGUAGE}")
+        logger.info(f"  JD hash: {jd_hash[:16]}...")
+        
+        logger.info(f"Creating embedding for JD (with cache)...")
         jd_embedding = get_embedding(jd_text, cache_id=jd_cache_id, cache_type='jd')
         
         if jd_embedding is None or len(jd_embedding) == 0:
-            logger.warning("Không tạo được JD embedding, bỏ qua pre-filtering")
+            logger.warning("Could not create JD embedding, skipping pre-filtering")
             return cv_data_list
         
-        # Note: response_requirement chỉ chứa metadata (số lượng CVs)
-        # KHÔNG cần embedding vì không ảnh hưởng semantic similarity
-        # Số lượng CVs được parse và apply ở stage cuối
+        # Note: response_requirement only contains metadata (number of CVs)
+        # Does NOT need embedding as it doesn't affect semantic similarity
+        # Number of CVs is parsed and applied at final stage
         
-        # Tạo embeddings cho tất cả CVs với cache
-        logger.info(f"Đang tạo embeddings cho {len(cv_data_list)} CVs (với cache)...")
+        # Create embeddings for all CVs with cache
+        logger.info(f"Creating embeddings for {len(cv_data_list)} CVs (with cache)...")
         cv_embeddings = []
         cache_hits = 0
         cache_misses = 0
@@ -336,7 +343,7 @@ def pre_filter_cvs_by_similarity(cv_data_list: list, jd_text: str, response_requ
             cv_filename = cv.get('filename', f'CV_{cv_file_id}')
             cv_content = cv.get('content', '')
             
-            # Check cache trước
+            # Check cache first
             cached = vector_db.get_cached_cv_embedding(cv_file_id, cv_content)
             if cached is not None and len(cached) > 0:
                 cache_hits += 1
@@ -344,20 +351,20 @@ def pre_filter_cvs_by_similarity(cv_data_list: list, jd_text: str, response_requ
                 logger.info(f"  📦 Cache HIT: {cv_filename} (file_id={cv_file_id})")
             else:
                 cache_misses += 1
-                logger.info(f"  🔄 Cache MISS: {cv_filename} (file_id={cv_file_id}) - Gọi OpenAI API...")
-                # Lấy embedding (tự động check cache trong get_embedding)
+                logger.info(f"  🔄 Cache MISS: {cv_filename} (file_id={cv_file_id}) - Calling OpenAI API...")
+                # Get embedding (automatically checks cache in get_embedding)
                 embedding = get_embedding(cv_content, cache_id=cv_file_id, cache_type='cv')
                 
                 if embedding:
                     cv_embeddings.append(embedding)
                 else:
-                    logger.warning(f"Không tạo được embedding cho CV {cv_file_id}")
+                    logger.warning(f"Could not create embedding for CV {cv_file_id}")
                     cv_embeddings.append([])
         
         logger.info(f"✅ Embedding cache: {cache_hits} hits, {cache_misses} misses ({cache_hits/(cache_hits+cache_misses)*100:.1f}% hit rate)")
         
-        # Tính similarity scores
-        logger.info("Đang tính cosine similarity...")
+        # Calculate similarity scores
+        logger.info("Calculating cosine similarity...")
         similarities = []
         for i, cv_emb in enumerate(cv_embeddings):
             sim = cosine_similarity(jd_embedding, cv_emb)
@@ -366,15 +373,15 @@ def pre_filter_cvs_by_similarity(cv_data_list: list, jd_text: str, response_requ
                 'similarity': sim
             })
         
-        # Sort theo similarity giảm dần
+        # Sort by similarity descending
         similarities.sort(key=lambda x: x['similarity'], reverse=True)
         
-        # Log kết quả
+        # Log results
         logger.info(f"Top 10 similarity scores:")
         for i, item in enumerate(similarities[:10], 1):
             logger.info(f"  {i}. {item['cv']['filename']}: {item['similarity']:.4f}")
         
-        # Lấy top N
+        # Get top N
         actual_top_n = min(top_n, len(similarities))
         top_cvs = [item['cv'] for item in similarities[:actual_top_n]]
         
@@ -384,46 +391,46 @@ def pre_filter_cvs_by_similarity(cv_data_list: list, jd_text: str, response_requ
         return top_cvs
         
     except Exception as e:
-        logger.error(f"Lỗi trong pre-filtering: {e}", exc_info=True)
-        logger.warning("Fallback: Sử dụng tất cả CVs")
+        logger.error(f"Error in pre-filtering: {e}", exc_info=True)
+        logger.warning("Fallback: Using all CVs")
         return cv_data_list
 
 
 @router.post("/")
 async def thinking_dump(request: Request):
     """
-    Endpoint để dump/log tất cả các giá trị từ client gửi lên
-    Tất cả các trường đều optional (không bắt buộc)
-    Hỗ trợ cả text fields và file uploads
+    Endpoint to dump/log all values sent from client
+    All fields are optional (not required)
+    Supports both text fields and file uploads
     
     Args:
         request: FastAPI Request object
     
     Returns:
-        dict: Tất cả các giá trị đã nhận được
+        dict: All received values
     """
     try:
-        # Parse form data (hỗ trợ cả text và file)
+        # Parse form data (supports both text and files)
         form_data = await request.form()
         
-        # Debug: Log các keys có trong form
+        # Debug: Log keys in form
         logger.info("=" * 80)
-        logger.info("THINKING ENDPOINT - Nhận request")
+        logger.info("THINKING ENDPOINT - Received request")
         logger.info(f"Form data keys: {list(form_data.keys())}")
         logger.info("=" * 80)
         
-        # Helper function để xử lý giá trị từ form_data
+        # Helper function to process values from form_data
         async def process_form_value(key: str):
-            """Xử lý giá trị từ form_data, hỗ trợ cả string và file"""
+            """Process value from form_data, supports both string and file"""
             if key not in form_data:
                 return None
             
             value = form_data[key]
             
-            # Nếu là UploadFile (file upload)
+            # If UploadFile (file upload)
             if hasattr(value, 'read'):
                 try:
-                    # Đọc file content
+                    # Read file content
                     content = await value.read()
                     file_info = {
                         "filename": value.filename,
@@ -431,7 +438,7 @@ async def thinking_dump(request: Request):
                         "size": len(content) if isinstance(content, bytes) else 0,
                         "is_binary": True
                     }
-                    # Nếu là text file, decode
+                    # If text file, decode
                     if isinstance(content, bytes):
                         try:
                             text_content = content.decode('utf-8')
@@ -440,24 +447,24 @@ async def thinking_dump(request: Request):
                             file_info["text_content"] = None
                     return file_info
                 except Exception as e:
-                    logger.warning(f"Lỗi khi đọc file {key}: {e}")
+                    logger.warning(f"Error reading file {key}: {e}")
                     return {"error": str(e), "is_binary": True}
             
-            # Nếu là string
+            # If string
             str_value = str(value) if value else None
             if str_value and str_value.strip():
                 return str_value
             return None
         
-        # Xử lý tất cả các trường từ form_data
+        # Process all fields from form_data
         received_data = {}
         for key in form_data.keys():
             processed_value = await process_form_value(key)
             received_data[key] = processed_value
         
-        # Log tất cả giá trị
+        # Log all values
         logger.info("=" * 80)
-        logger.info("THINKING ENDPOINT - Dump các giá trị từ client:")
+        logger.info("THINKING ENDPOINT - Dump values from client:")
         logger.info("=" * 80)
         for key, value in received_data.items():
             if isinstance(value, dict) and value.get("is_binary"):
@@ -471,9 +478,9 @@ async def thinking_dump(request: Request):
                 logger.info(f"{key}: {value}")
         logger.info("=" * 80)
         
-        # Print ra console để dễ debug
+        # Print to console for easier debugging
         print("\n" + "=" * 80)
-        print("THINKING ENDPOINT - Dump các giá trị từ client:")
+        print("THINKING ENDPOINT - Dump values from client:")
         print("=" * 80)
         for key, value in received_data.items():
             if isinstance(value, dict) and value.get("is_binary"):
@@ -487,12 +494,12 @@ async def thinking_dump(request: Request):
                 print(f"{key}: {value}")
         print("=" * 80 + "\n")
         
-        # Lấy dữ liệu từ form
+        # Get data from form
         jd_text = received_data.get("jd_text", "")
         response_requirement = received_data.get("response_requirement", "")
         advanced_options_str = received_data.get("advanced_options", "{}")
         
-        # Parse advanced_options nếu là string
+        # Parse advanced_options if string
         try:
             if isinstance(advanced_options_str, str):
                 advanced_options = json.loads(advanced_options_str)
@@ -501,36 +508,36 @@ async def thinking_dump(request: Request):
         except:
             advanced_options = {}
         
-        # Lấy tất cả CV từ database
-        logger.info("Đang lấy danh sách CV từ database...")
+        # Get all CVs from database
+        logger.info("Loading CV list from database...")
         cv_files, total_cvs = get_all_files(limit=1000, offset=0, file_type="cv")
-        logger.info(f"Tìm thấy {total_cvs} CV trong database")
+        logger.info(f"Found {total_cvs} CVs in database")
         
         if total_cvs == 0:
-            logger.warning("Không có CV nào trong database")
+            logger.warning("No CVs found in database")
             return {
                 "status": "success",
-                "message": "Không tìm thấy CV nào trong database",
+                "message": "No CVs found in database",
                 "received_data": received_data,
                 "cv_mappings": []
             }
         
-        # Lấy nội dung từng CV từ database (cột content)
+        # Get content from each CV from database (content column)
         cv_data_list = []
-        unreadable_cvs = []  # Track CVs không đọc được
+        unreadable_cvs = []  # Track unreadable CVs
         for cv_file in cv_files:
             file_path = cv_file.get("file_path", "")
             if not file_path:
                 continue
             
-            logger.info(f"Đang lấy nội dung CV: {cv_file.get('original_filename', 'unknown')}")
+            logger.info(f"Loading CV content: {cv_file.get('original_filename', 'unknown')}")
             
-            # Ưu tiên lấy từ cột content trong database
+            # Prioritize getting from content column in database
             cv_text = cv_file.get("content")
             
-            # Nếu không có content trong database, fallback về đọc file (cho CV cũ)
+            # If no content in database, fallback to reading file (for old CVs)
             if not cv_text or not cv_text.strip():
-                logger.info(f"CV {cv_file.get('original_filename', 'unknown')} chưa có content trong DB, đang đọc từ file...")
+                logger.info(f"CV {cv_file.get('original_filename', 'unknown')} has no content in DB, reading from file...")
                 cv_text = extract_text_from_cv(file_path)
             
             if cv_text and cv_text.strip():
@@ -543,93 +550,95 @@ async def thinking_dump(request: Request):
             else:
                 unreadable_filename = cv_file.get('original_filename', 'unknown')
                 unreadable_cvs.append(unreadable_filename)
-                logger.warning(f"Không thể lấy nội dung CV: {unreadable_filename}")
+                logger.warning(f"Could not get CV content: {unreadable_filename}")
         
         if not cv_data_list:
-            logger.warning("Không có CV nào có thể đọc được nội dung")
+            logger.warning("No CVs with readable content")
             return {
                 "status": "success",
-                "message": "Không thể đọc nội dung từ các CV",
+                "message": "Could not read content from CVs",
                 "received_data": received_data,
                 "cv_mappings": []
             }
         
-        logger.info(f"Đã đọc được {len(cv_data_list)} CV")
+        logger.info(f"Successfully read {len(cv_data_list)} CVs")
         logger.info(f"Advanced options: {advanced_options}")
         
-        # Debug: Log JD text hash để detect duplicates
+        # Debug: Log JD text hash to detect duplicates
         import hashlib
-        jd_hash_preview = hashlib.md5(jd_text.encode('utf-8')).hexdigest()
+        jd_cache_key_preview = f"{jd_text}_{PROMPT_LANGUAGE}"
+        jd_hash_preview = hashlib.md5(jd_cache_key_preview.encode('utf-8')).hexdigest()
         logger.info("=" * 80)
         logger.info("🔍 JD TEXT DEBUG:")
         logger.info(f"   Length: {len(jd_text)} chars")
-        logger.info(f"   MD5 Hash: {jd_hash_preview}")
+        logger.info(f"   PROMPT_LANGUAGE: {PROMPT_LANGUAGE}")
+        logger.info(f"   MD5 Hash (with lang): {jd_hash_preview}")
         logger.info(f"   First 200 chars: {jd_text[:200]}")
         logger.info(f"   Last 100 chars: {jd_text[-100:]}")
         logger.info("=" * 80)
         
-        # Lấy số lượng CV cần trả về từ payload (max_cv_count) hoặc parse từ response_requirement
+        # Get number of CVs to return from payload (max_cv_count) or parse from response_requirement
         requested_cv_count = None
         
-        # Ưu tiên lấy từ max_cv_count trong payload
+        # Prioritize getting from max_cv_count in payload
         max_cv_count_value = received_data.get("max_cv_count")
         
         if max_cv_count_value is not None and isinstance(max_cv_count_value, str):
             try:
-                # Xử lý string, loại bỏ khoảng trắng
+                # Handle string, remove whitespace
                 stripped = max_cv_count_value.strip()
-                if stripped:  # Chỉ convert nếu không rỗng
+                if stripped:  # Only convert if not empty
                     requested_cv_count = int(stripped)
-                    logger.info(f"✅ Lấy max_cv_count từ payload: {requested_cv_count}")
+                    logger.info(f"✅ Got max_cv_count from payload: {requested_cv_count}")
                 else:
-                    logger.warning(f"max_cv_count là string rỗng, bỏ qua")
+                    logger.warning(f"max_cv_count is empty string, skipping")
             except (ValueError, TypeError) as e:
-                logger.warning(f"max_cv_count không hợp lệ: {max_cv_count_value} (error: {e}), sẽ thử parse từ response_requirement")
+                logger.warning(f"Invalid max_cv_count: {max_cv_count_value} (error: {e}), will try parsing from response_requirement")
         
-        # Fallback: Parse từ response_requirement nếu không có max_cv_count
+        # Fallback: Parse from response_requirement if no max_cv_count
         if requested_cv_count is None and response_requirement:
-            # Tìm pattern như "2 CV", "top 3", "3 ứng viên", etc.
+            # Find patterns like "2 CV", "top 3", "3 candidates", etc.
             patterns = [
-                r'(?:lấy|trả về|cho|top)\s*(\d+)\s*(?:cv|ứng viên|candidate)',
-                r'(\d+)\s*(?:cv|ứng viên|candidate)',
+                r'(?:get|return|give|top)\s*(\d+)\s*(?:cv|candidate)',
+                r'(\d+)\s*(?:cv|candidate)',
             ]
             for pattern in patterns:
                 match = re.search(pattern, response_requirement.lower())
                 if match:
                     requested_cv_count = int(match.group(1))
-                    logger.info(f"Phát hiện yêu cầu số lượng CV: {requested_cv_count}")
+                    logger.info(f"Detected CV count requirement: {requested_cv_count}")
                     break
         
-        # STAGE 1: Pre-filter CVs bằng vector similarity
-        # Luôn tạo embeddings để cache, chỉ filter khi có nhiều CVs
-        PRE_FILTER_THRESHOLD = 50  # Ngưỡng để áp dụng filtering (không ảnh hưởng cache)
+        # STAGE 1: Pre-filter CVs using vector similarity
+        # Always create embeddings for cache, only filter when there are many CVs
+        PRE_FILTER_THRESHOLD = 50  # Threshold to apply filtering (does not affect cache)
         
-        # Tính số lượng CVs cần pre-filter dựa trên yêu cầu
+        # Calculate number of CVs to pre-filter based on requirement
         if requested_cv_count:
             PRE_FILTER_TOP_N = max(requested_cv_count * 5, 30)
         else:
             PRE_FILTER_TOP_N = 50
         
-        # LUÔN LUÔN tạo embeddings để cache (bất kể số CVs)
-        # Chỉ áp dụng filtering khi vượt threshold
+        # ALWAYS create embeddings for cache (regardless of CV count)
+        # Only apply filtering when exceeding threshold
         if len(cv_data_list) > PRE_FILTER_THRESHOLD:
-            logger.info(f"Sẽ pre-filter xuống {PRE_FILTER_TOP_N} CVs (buffer cho {requested_cv_count or 'all'} CVs yêu cầu)")
+            logger.info(f"Will pre-filter down to {PRE_FILTER_TOP_N} CVs (buffer for {requested_cv_count or 'all'} requested CVs)")
             top_n = PRE_FILTER_TOP_N
         else:
-            logger.info(f"Tạo embeddings cho cache (không filter vì chỉ có {len(cv_data_list)} CVs)")
-            top_n = len(cv_data_list)  # Không filter, nhưng vẫn tạo cache
+            logger.info(f"Creating embeddings for cache (no filter as only {len(cv_data_list)} CVs)")
+            top_n = len(cv_data_list)  # No filter, but still create cache
         
         cv_data_list = pre_filter_cvs_by_similarity(
             cv_data_list, 
             jd_text, 
             response_requirement, 
-            top_n=top_n  # Truyền len(cv_data_list) nếu không filter
+            top_n=top_n  # Pass len(cv_data_list) if no filter
         )
-        logger.info(f"Sau pre-filtering: {len(cv_data_list)} CVs")
+        logger.info(f"After pre-filtering: {len(cv_data_list)} CVs")
         
         # Define helper function for OpenAI retry logic
         def call_openai_with_retry(messages, max_retries=5, model=None):
-            """Gọi OpenAI API với exponential backoff retry"""
+            """Call OpenAI API with exponential backoff retry"""
             if model is None:
                 model = OPENAI_MODEL
             
@@ -639,19 +648,19 @@ async def thinking_dump(request: Request):
                     response = client.chat.completions.create(
                         model=model,
                         messages=messages,
-                        temperature=0.1,  # Tăng nhẹ để GPT focus hơn vào hoàn thành JSON
-                        max_tokens=6000  # Tăng lên cho Stage 3 với cv_presentation_comment object
+                        temperature=0.1,  # Slightly increase to help GPT focus on completing JSON
+                        max_tokens=6000  # Increased for Stage 3 with cv_presentation_comment object
                     )
                     elapsed_time = time.time() - start_time
                     
-                    # Log token usage và thời gian
+                    # Log token usage and time
                     usage = response.usage
                     logger.info(f"  ⏱️  {elapsed_time:.2f}s | 📊 Tokens: {usage.prompt_tokens} in + {usage.completion_tokens} out = {usage.total_tokens} total")
                     
                     return response
                 except Exception as e:
                     if "rate_limit" in str(e).lower() or "429" in str(e):
-                        wait_time = min(2 ** attempt, 20)  # Max 20 giây
+                        wait_time = min(2 ** attempt, 20)  # Max 20 seconds
                         logger.warning(f"Rate limit hit, waiting {wait_time}s before retry (attempt {attempt + 1}/{max_retries})")
                         time.sleep(wait_time)
                         if attempt == max_retries - 1:
@@ -659,7 +668,7 @@ async def thinking_dump(request: Request):
                     else:
                         raise
         
-        # STAGE 1: Extract requirements từ JD
+        # STAGE 1: Extract requirements from JD
         logger.info("=" * 80)
         logger.info("STAGE 1: EXTRACTING REQUIREMENTS FROM JD")
         logger.info("=" * 80)
@@ -673,26 +682,27 @@ async def thinking_dump(request: Request):
         total_tokens = 0
         
         try:
-            # Tạo JD hash cho cache (Stage 1A cache key)
-            jd_hash_for_stage1a = hashlib.md5(jd_text.encode('utf-8')).hexdigest()
+            # Create JD hash for cache (Stage 1A cache key)
+            jd_cache_key_stage1a = f"{jd_text}_{PROMPT_LANGUAGE}"
+            jd_hash_for_stage1a = hashlib.md5(jd_cache_key_stage1a.encode('utf-8')).hexdigest()
             
             # Initialize stage1a_usage (default to None, set if cache MISS)
             stage1a_usage = None
             
-            # Check cache trước khi gọi OpenAI
+            # Check cache before calling OpenAI
             logger.info(f"🔍 Checking cache for JD requirements (hash: {jd_hash_for_stage1a[:16]}...)")
             requirements = vector_db.get_cached_jd_requirements(jd_hash_for_stage1a)
             
             if requirements:
                 logger.info(f"✅ Cache HIT: Using cached JD requirements")
             else:
-                # Cache MISS - gọi OpenAI
+                # Cache MISS - call OpenAI
                 logger.info(f"❌ Cache MISS: Calling OpenAI ({OPENAI_MODEL}) to extract requirements from JD...")
                 extraction_prompt = get_extraction_prompt(jd_text, response_requirement)
                 
                 extraction_response = call_openai_with_retry(
                     messages=[
-                        {"role": "system", "content": "Bạn là một chuyên gia phân tích Job Description. Trả về CHÍNH XÁC JSON như yêu cầu."},
+                        {"role": "system", "content": "You are a Job Description analysis expert. Return EXACTLY the JSON as requested."},
                         {"role": "user", "content": extraction_prompt}
                     ],
                     model=OPENAI_MODEL
@@ -700,7 +710,7 @@ async def thinking_dump(request: Request):
                 
                 requirements_text = extraction_response.choices[0].message.content.strip()
                 
-                # Parse JSON từ response
+                # Parse JSON from response
                 if "```json" in requirements_text:
                     requirements_text = requirements_text.split("```json")[1].split("```")[0].strip()
                 elif "```" in requirements_text:
@@ -708,13 +718,13 @@ async def thinking_dump(request: Request):
                 
                 requirements = json.loads(requirements_text)
                 
-                # Track tokens từ Stage 1A
+                # Track tokens from Stage 1A
                 stage1a_usage = extraction_response.usage
                 total_prompt_tokens += stage1a_usage.prompt_tokens
                 total_completion_tokens += stage1a_usage.completion_tokens
                 total_tokens += stage1a_usage.total_tokens
                 
-                # Cache kết quả
+                # Cache result
                 vector_db.cache_jd_requirements(jd_hash_for_stage1a, requirements)
                 logger.info(f"💾 Cached JD requirements for future use")
             
@@ -728,44 +738,45 @@ async def thinking_dump(request: Request):
             logger.info("=" * 80)
             
         except Exception as e:
-            logger.error(f"Lỗi khi extract requirements: {e}", exc_info=True)
+            logger.error(f"Error extracting requirements: {e}", exc_info=True)
             raise HTTPException(
                 status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-                detail=f"Lỗi khi phân tích JD: {str(e)}"
+                detail=f"Error analyzing JD: {str(e)}"
             )
         
-        # STAGE 1B: Extract CV data và match với requirements
+        # STAGE 1B: Extract CV data and match with requirements
         logger.info("STAGE 1B: EXTRACTING CV DATA AND MATCHING")
         logger.info("=" * 80)
         
         stage1b_start = time.time()
         cv_list = []
         
-        # Tạo JD hash để dùng cho cache (extraction phụ thuộc vào JD)
-        # Số lượng CV cần return → Dùng field max_cv_count riêng (không ảnh hưởng cache)
-        jd_hash = hashlib.md5(jd_text.encode('utf-8')).hexdigest()
-        logger.info(f"JD hash: {jd_hash[:16]}... (full: {jd_hash})")
+        # Create JD hash for cache (extraction depends on both JD and PROMPT_LANGUAGE)
+        # Number of CVs to return → Use separate max_cv_count field (does not affect cache)
+        jd_cache_key = f"{jd_text}_{PROMPT_LANGUAGE}"
+        jd_hash = hashlib.md5(jd_cache_key.encode('utf-8')).hexdigest()
+        logger.info(f"JD hash (with lang={PROMPT_LANGUAGE}): {jd_hash[:16]}... (full: {jd_hash})")
         logger.info(f"JD text length: {len(jd_text)} chars")
         logger.info(f"JD text (first 200 chars): {jd_text[:200]}...")
         logger.info(f"JD text (last 100 chars): ...{jd_text[-100:]}")
         
-        # Chia CVs thành các batch để tối ưu chi phí và tránh truncate
-        # gpt-4o-mini output ngắn hơn gpt-4o → có thể tăng batch size
-        BATCH_SIZE = 7  # Sweet spot: vừa tiết kiệm (6 batches vs 8), vừa an toàn
+        # Split CVs into batches to optimize cost and avoid truncation
+        # gpt-4o-mini output shorter than gpt-4o → can increase batch size
+        BATCH_SIZE = 7  # Sweet spot: both economical (6 batches vs 8) and safe
         cv_batches = [cv_data_list[i:i + BATCH_SIZE] for i in range(0, len(cv_data_list), BATCH_SIZE)]
         
-        logger.info(f"Chia {len(cv_data_list)} CVs thành {len(cv_batches)} batch(es) ({BATCH_SIZE} CVs/batch)")
+        logger.info(f"Splitting {len(cv_data_list)} CVs into {len(cv_batches)} batch(es) ({BATCH_SIZE} CVs/batch)")
         
         try:
-            # Xử lý từng batch
+            # Process each batch
             extracted_cvs = []
             extraction_cache_hits = 0
             extraction_cache_misses = 0
             
             for batch_idx, cv_batch in enumerate(cv_batches, 1):
-                logger.info(f"Đang extract batch {batch_idx}/{len(cv_batches)} ({len(cv_batch)} CVs)...")
+                logger.info(f"Extracting batch {batch_idx}/{len(cv_batches)} ({len(cv_batch)} CVs)...")
                 
-                # Check cache cho từng CV trong batch
+                # Check cache for each CV in batch
                 batch_cached_cvs = []
                 batch_uncached_cvs = []
                 
@@ -779,7 +790,7 @@ async def thinking_dump(request: Request):
                     doc_id = f"cv_{content_hash[:16]}_{jd_hash[:16]}"
                     logger.info(f"  🔍 Checking cache: {cv_filename} (file_id={cv_file_id}, doc_id={doc_id})")
                     
-                    # Check cache (extraction phụ thuộc cả CV lẫn JD)
+                    # Check cache (extraction depends on both CV and JD)
                     cached_data = vector_db.get_cached_extracted_cv_data(
                         cv_file_id, 
                         cv_content, 
@@ -795,27 +806,27 @@ async def thinking_dump(request: Request):
                         batch_uncached_cvs.append(cv)
                         logger.info(f"  ❌ Cache MISS (extraction): {cv_filename} (file_id={cv_file_id})")
                 
-                # Nếu toàn bộ batch đã có cache, bỏ qua OpenAI
+                # If entire batch already cached, skip OpenAI
                 if len(batch_uncached_cvs) == 0:
-                    logger.info(f"Batch {batch_idx} - ✅ Tất cả {len(batch_cached_cvs)} CVs đã có cache, bỏ qua OpenAI")
+                    logger.info(f"Batch {batch_idx} - ✅ All {len(batch_cached_cvs)} CVs already cached, skipping OpenAI")
                     extracted_cvs.extend(batch_cached_cvs)
                     continue
                 
-                # Gọi OpenAI cho các CVs chưa có cache
-                logger.info(f"  🔄 Cache MISS (extraction): {len(batch_uncached_cvs)} CVs cần gọi OpenAI...")
+                # Call OpenAI for uncached CVs
+                logger.info(f"  🔄 Cache MISS (extraction): {len(batch_uncached_cvs)} CVs need OpenAI call...")
                 
-                # Format CV contents cho batch này
+                # Format CV contents for this batch
                 cv_contents_text = format_cv_contents(batch_uncached_cvs)
                 cv_extraction_prompt = get_cv_extraction_prompt(cv_contents_text, requirements)
                 
-                # Debug: In độ dài prompt
+                # Debug: Print prompt length
                 logger.info(f"Batch {batch_idx} - Prompt length: {len(cv_extraction_prompt)} chars (~{len(cv_extraction_prompt)//4} tokens)")
                 
-                # Gọi OpenAI với retry - dùng GPT-4o-mini cho CV extraction (rẻ hơn 16 lần)
-                logger.info(f"Đang gọi OpenAI API ({OPENAI_MINI_MODEL}) cho {len(batch_uncached_cvs)} CVs...")
+                # Call OpenAI with retry - use GPT-4o-mini for CV extraction (16x cheaper)
+                logger.info(f"Calling OpenAI API ({OPENAI_MINI_MODEL}) for {len(batch_uncached_cvs)} CVs...")
                 response = call_openai_with_retry(
                     messages=[
-                        {"role": "system", "content": "Bạn là một chuyên gia phân tích CV. Trả về CHÍNH XÁC JSON như yêu cầu."},
+                        {"role": "system", "content": "You are a CV analysis expert. Return EXACTLY the JSON as requested."},
                         {"role": "user", "content": cv_extraction_prompt}
                     ],
                     model=OPENAI_MINI_MODEL
@@ -825,7 +836,7 @@ async def thinking_dump(request: Request):
                 batch_response_text = response.choices[0].message.content.strip()
                 logger.info(f"Batch {batch_idx} - OpenAI response (first 300 chars): {batch_response_text[:300]}...")
                 
-                # Tìm JSON trong response
+                # Find JSON in response
                 if "```json" in batch_response_text:
                     batch_response_text = batch_response_text.split("```json")[1].split("```")[0].strip()
                 elif "```" in batch_response_text:
@@ -834,14 +845,14 @@ async def thinking_dump(request: Request):
                 # Parse JSON
                 batch_cv_data = json.loads(batch_response_text)
                 
-                # Đảm bảo là list
+                # Ensure it's a list
                 if not isinstance(batch_cv_data, list):
                     batch_cv_data = [batch_cv_data]
                 
-                # Cache kết quả extraction cho từng CV
+                # Cache extraction result for each CV
                 for cv_data in batch_cv_data:
                     cv_id = cv_data.get('cv_id')
-                    # Tìm CV gốc để lấy content
+                    # Find original CV to get content
                     cv_original = next((cv for cv in batch_uncached_cvs if cv.get('cv_id') == cv_id), None)
                     if cv_original:
                         vector_db.cache_extracted_cv_data(
@@ -851,22 +862,22 @@ async def thinking_dump(request: Request):
                             cv_data
                         )
                 
-                # Track tokens từ batch này
+                # Track tokens from this batch
                 batch_usage = response.usage
                 total_prompt_tokens += batch_usage.prompt_tokens
                 total_completion_tokens += batch_usage.completion_tokens
                 total_tokens += batch_usage.total_tokens
                 
-                # Kết hợp cached + newly extracted
+                # Combine cached + newly extracted
                 batch_all_cvs = batch_cached_cvs + batch_cv_data
                 extracted_cvs.extend(batch_all_cvs)
                 
-                # Validate: Cảnh báo nếu số CV extract != số CV trong batch
+                # Validate: Warn if extracted CV count != batch CV count
                 if len(batch_all_cvs) != len(cv_batch):
                     logger.warning(f"⚠️  Batch {batch_idx} - Expected {len(cv_batch)} CVs, got {len(batch_all_cvs)} CVs (MISSING {len(cv_batch) - len(batch_all_cvs)} CV(s))")
                     missing_cv_ids = set([cv['cv_id'] for cv in cv_batch]) - set([cv.get('cv_id') for cv in batch_all_cvs])
                     if missing_cv_ids:
-                        # Map cv_id về filename để dễ đọc
+                        # Map cv_id to filename for readability
                         cv_id_to_name = {cv['cv_id']: cv['filename'] for cv in cv_batch}
                         missing_filenames = [cv_id_to_name.get(cv_id, cv_id) for cv_id in missing_cv_ids]
                         logger.warning(f"     ❌ Missing: {', '.join(missing_filenames)}")
@@ -882,26 +893,26 @@ async def thinking_dump(request: Request):
             logger.info(f"   Cache Hits: {extraction_cache_hits}/{total_cvs_to_extract} ({cache_hit_rate:.1f}%)")
             logger.info(f"   Cache Misses: {extraction_cache_misses}/{total_cvs_to_extract}")
             if extraction_cache_hits > 0:
-                logger.info(f"   💰 Saved: ~{extraction_cache_hits * 500} tokens (ước tính)")
+                logger.info(f"   💰 Saved: ~{extraction_cache_hits * 500} tokens (estimated)")
             logger.info("=" * 80)
             
             stage1b_time = time.time() - stage1b_start
-            logger.info(f"✓ Đã extract {len(extracted_cvs)} CVs (từ {len(cv_data_list)} CVs input)")
+            logger.info(f"✓ Extracted {len(extracted_cvs)} CVs (from {len(cv_data_list)} CVs input)")
             logger.info(f"⏱️  Stage 1B completed in {stage1b_time:.2f}s")
             logger.info("=" * 80)
             
         except json.JSONDecodeError as e:
-            logger.error(f"Lỗi parse JSON từ OpenAI: {e}")
+            logger.error(f"JSON parse error from OpenAI: {e}")
             logger.error(f"Response text: {batch_response_text[:500] if 'batch_response_text' in locals() else 'N/A'}")
             raise HTTPException(
                 status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-                detail=f"Lỗi parse JSON từ OpenAI: {str(e)}"
+                detail=f"JSON parse error from OpenAI: {str(e)}"
             )
         except Exception as e:
-            logger.error(f"Lỗi khi extract CV data: {e}", exc_info=True)
+            logger.error(f"Error extracting CV data: {e}", exc_info=True)
             raise HTTPException(
                 status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-                detail=f"Lỗi khi extract CV data: {str(e)}"
+                detail=f"Error extracting CV data: {str(e)}"
             )
         
         # STAGE 2: Deterministic Scoring
@@ -948,14 +959,14 @@ async def thinking_dump(request: Request):
             
             cv_list.append(cv_item)
         
-        # Map lại với file_id từ database
+        # Map back with file_id from database
         cv_id_to_file = {cv_data['cv_id']: cv_data['file_id'] for cv_data in cv_data_list}
         for cv_item in cv_list:
             cv_id = cv_item.get('cv_id', '')
             if cv_id in cv_id_to_file:
                 cv_item['file_id'] = cv_id_to_file[cv_id]
         
-        # Sắp xếp theo điểm từ cao đến thấp
+        # Sort by score from high to low
         cv_list.sort(key=lambda x: x.get("scope", {}).get("score", 0), reverse=True)
         
         stage2_time = time.time() - stage2_start
@@ -969,23 +980,23 @@ async def thinking_dump(request: Request):
         logger.info(f"⏱️  Stage 2 completed in {stage2_time:.2f}s (deterministic, no API calls)")
         logger.info("=" * 80)
         
-        # Lọc chỉ giữ CV có score > 0 (TRƯỚC Stage 3)
+        # Filter to keep only CVs with score > 0 (BEFORE Stage 3)
         cv_list_before_filter = len(cv_list)
         cv_list = [cv for cv in cv_list if cv.get("scope", {}).get("score", 0) > 0]
         
         if cv_list_before_filter > len(cv_list):
-            logger.info(f"Đã lọc: {cv_list_before_filter} CVs → {len(cv_list)} CVs (loại {cv_list_before_filter - len(cv_list)} CVs có score = 0)")
+            logger.info(f"Filtered: {cv_list_before_filter} CVs → {len(cv_list)} CVs (removed {cv_list_before_filter - len(cv_list)} CVs with score = 0)")
         else:
-            logger.info(f"Không có CV nào bị loại (tất cả {len(cv_list)} CVs đều có score > 0)")
+            logger.info(f"No CVs filtered (all {len(cv_list)} CVs have score > 0)")
         
-        # Giới hạn số lượng CV theo yêu cầu (nếu có) - TRƯỚC Stage 3
+        # Limit number of CVs per request (if any) - BEFORE Stage 3
         if requested_cv_count and requested_cv_count > 0:
             cv_list_before_limit = len(cv_list)
             cv_list = cv_list[:requested_cv_count]
-            logger.info(f"Giới hạn kết quả: {cv_list_before_limit} CVs → {len(cv_list)} CVs (theo yêu cầu: top {requested_cv_count})")
+            logger.info(f"Limited results: {cv_list_before_limit} CVs → {len(cv_list)} CVs (per request: top {requested_cv_count})")
         
-        # STAGE 3: Advanced Features (DI CHUYỂN XUỐNG ĐÂY - SAU KHI ĐÃ LIMIT)
-        # CHỈ generate cho CVs cuối cùng cần trả về
+        # STAGE 3: Advanced Features (MOVED DOWN HERE - AFTER LIMIT)
+        # ONLY generate for final CVs to return
         stage3_time = 0
         has_advanced_options = any([
             # advanced_options.get("detectDuplicate", False),
@@ -1002,71 +1013,87 @@ async def thinking_dump(request: Request):
             
             stage3_start = time.time()
             
-            # Check cache cho TỪNG CV riêng lẻ
+            # Check cache for EACH individual CV
             cv_ids = [cv.get('file_id') for cv in cv_list]
+            
+            # DEBUG: Log cache key components
+            import hashlib
+            cv_ids_str = "_".join(sorted([str(id) for id in cv_ids]))
+            cv_ids_hash = hashlib.md5(cv_ids_str.encode()).hexdigest()
+            options_str = json.dumps(advanced_options, sort_keys=True)
+            options_hash = hashlib.md5(options_str.encode()).hexdigest()
+            cache_key = f"advanced_{jd_hash[:8]}_{cv_ids_hash[:8]}_{options_hash[:8]}"
+            
+            logger.info(f"🔍 STAGE 3 CACHE DEBUG:")
+            logger.info(f"  JD hash: {jd_hash[:16]}...")
+            logger.info(f"  CV IDs (sorted): {sorted(cv_ids)}")
+            logger.info(f"  CV IDs hash: {cv_ids_hash[:16]}...")
+            logger.info(f"  Options: {advanced_options}")
+            logger.info(f"  Options hash: {options_hash[:16]}...")
+            logger.info(f"  Cache key: {cache_key}")
+            
+            # LEVEL 1: Try bulk cache (fastest - 1 lookup for all CVs)
             cached_advanced = vector_db.get_cached_advanced_features(jd_hash, cv_ids, advanced_options)
             
             if cached_advanced:
-                logger.info(f"📦 Cache HIT: Stage 3 advanced features for ALL {len(cv_list)} CVs")
+                logger.info(f"📦 BULK Cache HIT: Stage 3 advanced features for ALL {len(cv_list)} CVs")
                 advanced_data = cached_advanced
             else:
-                # Một số CVs đã có cache, một số chưa → Chỉ generate cho CVs chưa có cache
-                logger.info(f"🔄 Cache PARTIAL/MISS: Checking individual CV cache...")
-                
-                # Check cache từng CV
-                options_str = json.dumps(advanced_options, sort_keys=True)
-                options_hash = hashlib.md5(options_str.encode()).hexdigest()
+                # LEVEL 2: Try individual cache for each CV (more flexible)
+                logger.info(f"🔄 BULK Cache MISS → Checking INDIVIDUAL cache for {len(cv_ids)} CVs...")
                 
                 cached_cvs = []
                 uncached_cvs = []
                 
+                # Check individual cache for each CV
+                collection = vector_db._get_or_create_collection(vector_db.ADVANCED_FEATURES_COLLECTION)
                 for cv_item in cv_list:
                     cv_id = cv_item.get('cv_id')
                     file_id = cv_item.get('file_id')
                     
-                    # Check individual cache
-                    collection = vector_db._get_or_create_collection(vector_db.ADVANCED_FEATURES_COLLECTION)
-                    doc_id = f"advanced_{jd_hash[:16]}_{cv_id}_{options_hash[:8]}"
+                    # Individual cache key: jd_hash + cv_id + options_hash
+                    individual_doc_id = f"ind_adv_{jd_hash[:16]}_{cv_id}_{options_hash[:8]}"
                     
-                    result = collection.get(ids=[doc_id], include=["documents"])
+                    result = collection.get(ids=[individual_doc_id], include=["documents"])
                     
                     if result['ids'] and len(result['documents']) > 0:
                         cv_advanced = json.loads(result['documents'][0])
                         cached_cvs.append(cv_advanced)
-                        logger.info(f"  📦 Cache HIT: {cv_item.get('candidate_name', 'Unknown')} (cv_id={cv_id})")
+                        logger.info(f"  ✓ Individual cache HIT: {cv_item.get('candidate_name', 'Unknown')} (cv_id={cv_id})")
                     else:
-                        # Tìm extracted_cv tương ứng
+                        # Find corresponding extracted_cv for uncached CVs
                         extracted_cv = next((cv for cv in extracted_cvs if cv.get('cv_id') == cv_id), None)
                         if extracted_cv:
                             uncached_cvs.append(extracted_cv)
-                            logger.info(f"  🔄 Cache MISS: {cv_item.get('candidate_name', 'Unknown')} (cv_id={cv_id})")
+                            logger.info(f"  ✗ Individual cache MISS: {cv_item.get('candidate_name', 'Unknown')} (cv_id={cv_id})")
                 
-                logger.info(f"Cache status: {len(cached_cvs)} hits, {len(uncached_cvs)} misses")
+                logger.info(f"Individual cache status: {len(cached_cvs)} hits, {len(uncached_cvs)} misses")
                 
-                # Nếu có CVs chưa cache, gọi OpenAI CHỈ cho các CVs đó
-                # CHIA BATCHES để tránh response quá dài bị truncate
-                STAGE3_BATCH_SIZE = 1  # 1 CV/batch cho Stage 3 (prompt rất dài với examples chi tiết)
+                # Only generate features for uncached CVs
                 newly_generated = []
                 
                 if len(uncached_cvs) > 0:
                     logger.info(f"🔄 Generating advanced features for {len(uncached_cvs)} uncached CVs...")
                     
-                    # Chia thành batches
-                    stage3_batches = [uncached_cvs[i:i + STAGE3_BATCH_SIZE] for i in range(0, len(uncached_cvs), STAGE3_BATCH_SIZE)]
-                    logger.info(f"Chia {len(uncached_cvs)} CVs thành {len(stage3_batches)} batch(es) ({STAGE3_BATCH_SIZE} CVs/batch)")
+                    # SPLIT INTO BATCHES to avoid response being too long and truncated
+                    STAGE3_BATCH_SIZE = 1  # 1 CV/batch for Stage 3 (very long prompt with detailed examples)
                     
-                    for batch_idx, batch_cvs in enumerate(stage3_batches, 1):
-                        logger.info(f"📦 Processing Stage 3 batch {batch_idx}/{len(stage3_batches)} ({len(batch_cvs)} CVs)...")
+                    # Split into batches
+                    stage3_batches = [uncached_cvs[i:i + STAGE3_BATCH_SIZE] for i in range(0, len(uncached_cvs), STAGE3_BATCH_SIZE)]
+                    logger.info(f"Splitting {len(uncached_cvs)} CVs into {len(stage3_batches)} batch(es) ({STAGE3_BATCH_SIZE} CVs/batch)")
+                    
+                    for batch_idx, batch_extracted in enumerate(stage3_batches, 1):
+                        logger.info(f"📦 Processing Stage 3 batch {batch_idx}/{len(stage3_batches)} ({len(batch_extracted)} CVs)...")
                         
-                        # Generate prompt CHỈ cho batch này
-                        advanced_prompt = get_stage3_advanced_prompt(batch_cvs, jd_text, requirements, advanced_options)
+                        # Generate prompt ONLY for this batch
+                        advanced_prompt = get_stage3_advanced_prompt(batch_extracted, jd_text, requirements, advanced_options)
                         
                         if advanced_prompt:
                             # Call OpenAI
-                            logger.info(f"Đang gọi OpenAI API ({OPENAI_MINI_MODEL}) cho batch {batch_idx}...")
+                            logger.info(f"Calling OpenAI API ({OPENAI_MINI_MODEL}) for batch {batch_idx}...")
                             stage3_response = call_openai_with_retry(
                                 messages=[
-                                    {"role": "system", "content": "Bạn là chuyên gia tuyển dụng AI. QUAN TRỌNG: Bạn PHẢI trả về JSON array HOÀN CHỈNH với tất cả fields được yêu cầu. KHÔNG DỪNG giữa chừng. Kiểm tra JSON có đóng đủ dấu ngoặc {{ }}, [ ], trước khi kết thúc."},
+                                    {"role": "system", "content": "You are an AI recruitment expert. IMPORTANT: You MUST return a COMPLETE JSON array with all required fields. DO NOT STOP in the middle. Ensure JSON has all closing brackets {{ }}, [ ] before finishing."},
                                     {"role": "user", "content": advanced_prompt}
                                 ],
                                 model=OPENAI_MINI_MODEL
@@ -1086,23 +1113,23 @@ async def thinking_dump(request: Request):
                             logger.info(f"Contains 'job_leveling': {'job_leveling' in stage3_text}")
                             logger.info("=" * 80)
                             
-                            # Extract JSON - FIX: Lấy toàn bộ giữa first và last ```
+                            # Extract JSON - FIX: Get everything between first and last ```
                             if "```json" in stage3_text:
-                                # Tìm vị trí bắt đầu sau ```json
+                                # Find position after ```json
                                 start_idx = stage3_text.find("```json") + len("```json")
-                                # Tìm vị trí kết thúc (``` cuối cùng)
+                                # Find last ``` position
                                 end_idx = stage3_text.rfind("```")
                                 if end_idx > start_idx:
                                     stage3_text = stage3_text[start_idx:end_idx].strip()
                             elif "```" in stage3_text:
-                                # Tìm vị trí sau ``` đầu tiên
+                                # Find position after first ```
                                 start_idx = stage3_text.find("```") + 3
-                                # Tìm vị trí ``` cuối cùng
+                                # Find last ```
                                 end_idx = stage3_text.rfind("```")
                                 if end_idx > start_idx:
                                     stage3_text = stage3_text[start_idx:end_idx].strip()
                             
-                            # Debug: Log GPT response trước khi parse
+                            # Debug: Log GPT response before parsing
                             logger.info("=" * 80)
                             logger.info(f"🔍 STAGE 3 BATCH {batch_idx} GPT RESPONSE (first 1000 chars):")
                             logger.info(stage3_text[:1000])
@@ -1110,39 +1137,88 @@ async def thinking_dump(request: Request):
                             
                             batch_generated = json.loads(stage3_text)
                             
+                            # ✨ CRITICAL FIX: Validate and fix cv_id format
+                            if isinstance(batch_generated, list):
+                                for item in batch_generated:
+                                    if 'cv_id' not in item or not item['cv_id']:
+                                        logger.error(f"⚠️ GPT response missing cv_id: {item}")
+                                        # Try to infer cv_id from batch_extracted
+                                        if len(batch_extracted) == 1:
+                                            item['cv_id'] = batch_extracted[0].get('cv_id')
+                                            logger.warning(f"Fixed cv_id to: {item['cv_id']}")
+                                    
+                                    # ✨ NORMALIZE job_leveling to ARRAY (backward compatibility)
+                                    if 'job_leveling' in item and isinstance(item['job_leveling'], str):
+                                        item['job_leveling'] = [item['job_leveling']]
+                                        logger.info(f"Normalized job_leveling to array for {item.get('cv_id')}: {item['job_leveling']}")
+                            else:
+                                # Single CV response
+                                if 'cv_id' not in batch_generated or not batch_generated['cv_id']:
+                                    if len(batch_extracted) == 1:
+                                        batch_generated['cv_id'] = batch_extracted[0].get('cv_id')
+                                        logger.warning(f"Fixed cv_id to: {batch_generated['cv_id']}")
+                                
+                                # Normalize job_leveling for single CV
+                                if 'job_leveling' in batch_generated and isinstance(batch_generated['job_leveling'], str):
+                                    batch_generated['job_leveling'] = [batch_generated['job_leveling']]
+                                    logger.info(f"Normalized job_leveling to array: {batch_generated['job_leveling']}")
+                            
                             # Track tokens
                             stage3_usage = stage3_response.usage
                             total_prompt_tokens += stage3_usage.prompt_tokens
                             total_completion_tokens += stage3_usage.completion_tokens
                             total_tokens += stage3_usage.total_tokens
                             
-                            # Thêm vào newly_generated
+                            # Add to newly_generated
                             if isinstance(batch_generated, list):
                                 newly_generated.extend(batch_generated)
                             else:
                                 newly_generated.append(batch_generated)
                             
                             logger.info(f"✓ Batch {batch_idx} completed: Generated {len(batch_generated) if isinstance(batch_generated, list) else 1} CV(s)")
-                    
                     logger.info(f"✓ Stage 3 batching completed: Generated {len(newly_generated)} total CVs")
                     
-                    # Cache kết quả (từng CV riêng lẻ)
-                    uncached_cv_ids = [cv.get('file_id') for cv in uncached_cvs]
-                    vector_db.cache_advanced_features(jd_hash, uncached_cv_ids, advanced_options, newly_generated)
-                    logger.info(f"✓ Cached Stage 3 advanced features for {len(newly_generated)} newly generated CVs")
+                    # ✨ Cache INDIVIDUAL CVs (for flexibility when max_cv_count changes)
+                    collection = vector_db._get_or_create_collection(vector_db.ADVANCED_FEATURES_COLLECTION)
+                    for cv_advanced in newly_generated:
+                        cv_id = cv_advanced.get('cv_id')
+                        individual_doc_id = f"ind_adv_{jd_hash[:16]}_{cv_id}_{options_hash[:8]}"
+                        
+                        collection.upsert(
+                            ids=[individual_doc_id],
+                            documents=[json.dumps(cv_advanced)],
+                            metadatas=[{
+                                "jd_hash": jd_hash,
+                                "cv_id": cv_id,
+                                "options_hash": options_hash,
+                                "cached_at": time.time()
+                            }]
+                        )
+                    logger.info(f"✓ Cached INDIVIDUAL Stage 3 for {len(newly_generated)} newly generated CVs")
                 
                 # Merge cached + newly generated
                 advanced_data = cached_cvs + newly_generated
                 logger.info(f"Total advanced data: {len(cached_cvs)} cached + {len(newly_generated)} new = {len(advanced_data)} CVs")
+                
+                # ✨ Cache BULK for ALL CVs (for speed when same max_cv_count)
+                # This ensures next run with same JD + same top CVs + same options → INSTANT cache hit
+                vector_db.cache_advanced_features(jd_hash, cv_ids, advanced_options, advanced_data)
+                logger.info(f"✓ Cached BULK Stage 3 advanced features for ALL {len(cv_ids)} CVs")
             
-            # Merge advanced data vào cv_list
+            # Merge advanced data into cv_list
             advanced_dict = {item.get('cv_id'): item for item in advanced_data}
+            
+            # DEBUG: Log cv_id formats to debug merge issue
+            logger.info(f"🔍 DEBUG: advanced_dict keys: {list(advanced_dict.keys())[:5]}")
+            logger.info(f"🔍 DEBUG: cv_list cv_ids: {[cv.get('cv_id') for cv in cv_list]}")
+            
             for cv_item in cv_list:
                 cv_id = cv_item.get('cv_id')
                 if cv_id in advanced_dict:
                     advanced_item = advanced_dict[cv_id]
+                    logger.debug(f"🔍 Merging advanced data for {cv_id}: {list(advanced_item.keys())}")
                     
-                    # Merge các fields
+                    # Merge fields
                     # if advanced_options.get("detectDuplicate") and 'duplicate_warning' in advanced_item:
                     #     cv_item["duplicate_warning"] = advanced_item["duplicate_warning"]
                     
@@ -1158,20 +1234,27 @@ async def thinking_dump(request: Request):
                     if advanced_options.get("certBenefit") and 'cert_comment' in advanced_item:
                         cv_item["cert_comment"] = advanced_item["cert_comment"]
             
+            # DEBUG: Check how many CVs got job_leveling
+            cvs_with_job_leveling = [cv for cv in cv_list if cv.get('job_leveling') is not None]
+            logger.info(f"📊 After merge: {len(cvs_with_job_leveling)}/{len(cv_list)} CVs have job_leveling")
+            if len(cvs_with_job_leveling) < len(cv_list):
+                missing_job_leveling = [cv.get('cv_id') for cv in cv_list if cv.get('job_leveling') is None]
+                logger.warning(f"⚠️ Missing job_leveling for CVs: {missing_job_leveling}")
+            
             stage3_time = time.time() - stage3_start
             logger.info(f"⏱️  Stage 3 completed in {stage3_time:.2f}s")
             logger.info("=" * 80)
         
-        # Filter/limit đã được di chuyển lên trước Stage 3
+        # Filter/limit already moved up before Stage 3
         
         total_time = time.time() - stage1_start
         
-        # Tính cost ước tính
+        # Calculate estimated cost
         # Stage 1A: gpt-4o ($2.50 input, $10.00 output per 1M tokens)
         # Stage 1B: gpt-4o-mini ($0.150 input, $0.600 output per 1M tokens)
         
         if stage1a_usage:
-            # Cache MISS - có token usage từ OpenAI
+            # Cache MISS - has token usage from OpenAI
             stage1a_tokens = stage1a_usage.prompt_tokens + stage1a_usage.completion_tokens
             stage1b_prompt = total_prompt_tokens - stage1a_usage.prompt_tokens
             stage1b_completion = total_completion_tokens - stage1a_usage.completion_tokens
@@ -1179,7 +1262,7 @@ async def thinking_dump(request: Request):
             cost_1a_input = (stage1a_usage.prompt_tokens / 1_000_000) * 2.50
             cost_1a_output = (stage1a_usage.completion_tokens / 1_000_000) * 10.00
         else:
-            # Cache HIT - không có token usage cho Stage 1A
+            # Cache HIT - no token usage for Stage 1A
             stage1a_tokens = 0
             stage1b_prompt = total_prompt_tokens
             stage1b_completion = total_completion_tokens
@@ -1195,7 +1278,7 @@ async def thinking_dump(request: Request):
         logger.info(f"✅ THREE-STAGE HYBRID APPROACH COMPLETED in {total_time:.2f}s")
         logger.info(f"  📋 Database: {total_cvs} CVs total")
         
-        # Chi tiết CVs không đọc được
+        # Detail unreadable CVs
         if unreadable_cvs:
             logger.info(f"  📄 Readable: {len(cv_data_list)} CVs (skipped {len(unreadable_cvs)} unreadable)")
             logger.info(f"     ⚠️  Unreadable: {', '.join(unreadable_cvs)}")
@@ -1204,7 +1287,7 @@ async def thinking_dump(request: Request):
         
         logger.info(f"  🔍 Stage 1A (JD): {len(requirements.get('must_have_requirements', []))} must-haves, {len(requirements.get('nice_to_have_requirements', []))} nice-to-haves)")
         
-        # Chi tiết CVs bị LLM bỏ sót
+        # Detail CVs skipped by LLM
         missing_count = len(cv_data_list) - len(extracted_cvs)
         if missing_count > 0:
             # Find which CVs were skipped
@@ -1237,10 +1320,10 @@ async def thinking_dump(request: Request):
             logger.info(f"  ⏱️  Total time: Stage 1A={stage1_time:.1f}s + Stage 1B={stage1b_time:.1f}s + Stage 2={stage2_time:.1f}s = {total_time:.1f}s")
         logger.info("=" * 80)
         
-        # Trả về kết quả
+        # Return results
         return {
             "status": "success",
-            "message": f"Đã đối chiếu {len(cv_list)} CV phù hợp với JD",
+            "message": f"Matched {len(cv_list)} CVs with JD",
             "received_data": received_data,
             "cv_mappings": cv_list,
             "total_cvs_processed": len(cv_data_list),
@@ -1248,9 +1331,9 @@ async def thinking_dump(request: Request):
         }
     
     except Exception as e:
-        logger.error(f"Lỗi khi xử lý request: {e}", exc_info=True)
+        logger.error(f"Error processing request: {e}", exc_info=True)
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=f"Lỗi khi xử lý request: {str(e)}"
+            detail=f"Error processing request: {str(e)}"
         )
 

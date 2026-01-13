@@ -1,4 +1,4 @@
-"""Routes cho CV upload"""
+"""Routes for CV upload"""
 from pathlib import Path
 from typing import List
 import hashlib
@@ -16,72 +16,72 @@ router = APIRouter(prefix="/cv", tags=["CV"])
 @router.post("/upload", response_model=FileListResponse, status_code=status.HTTP_201_CREATED)
 async def upload_cv(files: List[UploadFile] = File(...)):
     """
-    Upload nhiều file CV (PDF hoặc DOCX) vào thư mục cvs và lưu metadata vào SQLite
+    Upload multiple CV files (PDF or DOCX) to the cvs folder and save metadata to SQLite
     
     Args:
-        files: Danh sách files cần upload (chấp nhận PDF, DOCX hoặc DOC)
-              Có thể upload nhiều file cùng lúc
+        files: List of files to upload (accepts PDF, DOCX or DOC)
+              Can upload multiple files at once
     
     Returns:
-        FileListResponse: Danh sách thông tin các file đã upload
+        FileListResponse: List of information about uploaded files
     """
     if not files:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
-            detail="Vui lòng chọn ít nhất một file để upload"
+            detail="Please select at least one file to upload"
         )
     
     uploaded_files = []
     failed_files = []
     
     for file in files:
-        # Kiểm tra loại file
+        # Check file type
         if not file.filename:
-            failed_files.append({"filename": "unknown", "error": "Tên file không được để trống"})
+            failed_files.append({"filename": "unknown", "error": "Filename cannot be empty"})
             continue
         
-        # Kiểm tra extension (chấp nhận PDF và DOCX)
+        # Check extension (accept PDF and DOCX)
         file_extension = Path(file.filename).suffix.lower()
         allowed_extensions = [".pdf", ".docx", ".doc"]
         if file_extension not in allowed_extensions:
             failed_files.append({
                 "filename": file.filename,
-                "error": f"Chỉ chấp nhận file PDF, DOCX hoặc DOC. File có extension: {file_extension}"
+                "error": f"Only PDF, DOCX or DOC files are accepted. File has extension: {file_extension}"
             })
             continue
         
-        # Kiểm tra content type
+        # Check content type
         if file.content_type:
             valid_content_types = ["pdf", "document", "msword", "wordprocessingml"]
             if not any(ct in file.content_type.lower() for ct in valid_content_types):
                 failed_files.append({
                     "filename": file.filename,
-                    "error": f"Content type không hợp lệ: {file.content_type}"
+                    "error": f"Invalid content type: {file.content_type}"
                 })
                 continue
         
-        # Tạo tên file an toàn
+        # Create safe filename
         original_filename = file.filename
         file_path = generate_safe_filename(original_filename, CV_DIRECTORY)
         
         try:
-            # Lưu file vào thư mục cvs
+            # Save file to cvs folder
             with open(file_path, "wb") as f:
                 content = await file.read()
                 f.write(content)
             
-            # Tính toán file size và hash
+            # Calculate file size and hash
             file_size = file_path.stat().st_size
             file_hash = calculate_file_hash(file_path)
             
-            # Trích xuất nội dung text từ CV (lưu RAW - không clean)
+            # Extract text content from CV (save RAW - no cleaning)
             content = None
             try:
                 content = extract_text_from_file(file_path)
-                # In ra nội dung content CV để kiểm tra
+                # Print CV content for verification
                 if content:
                     print(f"\n{'='*80}")
-                    print(f"Nội dung CV (RAW): {original_filename}")
+                    print(f"CV Content (RAW): {original_filename}")
                     print(f"{'='*80}")
                     print(content[:500])  # Print first 500 chars
                     print(f"... (total {len(content)} chars)")
@@ -114,7 +114,7 @@ async def upload_cv(files: List[UploadFile] = File(...)):
                             # Return error with duplicate info
                             failed_files.append({
                                 "filename": original_filename,
-                                "error": f"⚠️ CV trùng lặp! File này giống 100% với '{existing_filename}' (file_id: {existing_file_id}) đã có trong hệ thống. Vui lòng kiểm tra lại."
+                                "error": f"⚠️ Duplicate CV! This file is 100% identical to '{existing_filename}' (file_id: {existing_file_id}) already in the system. Please check again."
                             })
                             print(f"🔍 Duplicate detected: {original_filename} === {existing_filename}")
                             continue  # Skip to next file
@@ -123,12 +123,12 @@ async def upload_cv(files: List[UploadFile] = File(...)):
                         print(f"Warning: Duplicate check failed for {original_filename}: {e}")
                     
                 else:
-                    print(f"Warning: Không thể trích xuất nội dung từ file {original_filename}")
+                    print(f"Warning: Unable to extract content from file {original_filename}")
             except Exception as e:
-                # Nếu không extract được content, vẫn tiếp tục lưu file nhưng không có content
-                print(f"Warning: Không thể trích xuất nội dung từ file {original_filename}: {str(e)}")
+                # If content extraction fails, continue saving file without content
+                print(f"Warning: Unable to extract content from file {original_filename}: {str(e)}")
             
-            # Lưu vào database
+            # Save to database
             file_id = save_file_to_database(
                 filename=file_path.name,
                 original_filename=original_filename,
@@ -140,31 +140,31 @@ async def upload_cv(files: List[UploadFile] = File(...)):
                 content=content
             )
             
-            # Lấy thông tin file vừa lưu
+            # Get saved file information
             file_info = get_file_by_id(file_id)
             if file_info:
                 uploaded_files.append(FileResponse(**file_info))
         
         except Exception as e:
-            # Xóa file nếu có lỗi khi lưu vào database
+            # Delete file if error occurs when saving to database
             if file_path.exists():
                 file_path.unlink()
             
             failed_files.append({
                 "filename": original_filename,
-                "error": f"Lỗi khi upload file: {str(e)}"
+                "error": f"Error uploading file: {str(e)}"
             })
     
-    # Nếu không có file nào upload thành công
+    # If no files were uploaded successfully
     if not uploaded_files:
         error_details = "; ".join([f"{f['filename']}: {f['error']}" for f in failed_files])
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
-            detail=f"Không có file nào được upload thành công. Lỗi: {error_details}"
+            detail=f"No files were uploaded successfully. Errors: {error_details}"
         )
     
-    # Trả về danh sách files đã upload thành công
-    # Nếu có file lỗi, thêm thông tin vào response (có thể mở rộng model sau)
+    # Return list of successfully uploaded files
+    # If there are failed files, add information to response (can extend model later)
     return FileListResponse(
         total=len(uploaded_files),
         files=uploaded_files
@@ -174,14 +174,14 @@ async def upload_cv(files: List[UploadFile] = File(...)):
 @router.get("/files", response_model=FileListResponse)
 async def list_cv_files(limit: int = 100, offset: int = 0):
     """
-    Lấy danh sách tất cả CV files đã upload
+    Get list of all uploaded CV files
     
     Args:
-        limit: Số lượng files tối đa trả về (mặc định: 100)
-        offset: Số lượng files bỏ qua (mặc định: 0)
+        limit: Maximum number of files to return (default: 100)
+        offset: Number of files to skip (default: 0)
     
     Returns:
-        FileListResponse: Danh sách files và tổng số
+        FileListResponse: List of files and total count
     """
     files, total = get_all_files(limit=limit, offset=offset, file_type="cv")
     
@@ -194,20 +194,20 @@ async def list_cv_files(limit: int = 100, offset: int = 0):
 @router.get("/view/{file_id}")
 async def view_cv_file(file_id: int):
     """
-    Xem file CV trực tiếp trên trình duyệt theo ID
+    View CV file directly in browser by ID
     
     Args:
-        file_id: ID của file CV
+        file_id: CV file ID
     
     Returns:
-        Response: File binary với headers để hiển thị trực tiếp trong browser (inline)
+        Response: File binary with headers to display directly in browser (inline)
     """
     file_info = get_file_by_id(file_id)
     
     if not file_info or file_info.get("file_type") != "cv":
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
-            detail=f"Không tìm thấy CV file với ID: {file_id}"
+            detail=f"CV file not found with ID: {file_id}"
         )
     
     file_path = Path(file_info["file_path"])
@@ -215,10 +215,10 @@ async def view_cv_file(file_id: int):
     if not file_path.exists():
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
-            detail=f"File không tồn tại trên hệ thống: {file_path}"
+            detail=f"File does not exist on system: {file_path}"
         )
     
-    # Xác định content type dựa trên extension
+    # Determine content type based on extension
     content_type = file_info.get("content_type")
     if not content_type:
         file_extension = file_path.suffix.lower()
@@ -229,12 +229,12 @@ async def view_cv_file(file_id: int):
         }
         content_type = content_type_map.get(file_extension, "application/octet-stream")
     
-    # Đọc file content
+    # Read file content
     with open(file_path, "rb") as f:
         file_content = f.read()
     
-    # Set headers để hiển thị inline (không download)
-    # Quan trọng: chỉ set Content-Disposition: inline, không set attachment
+    # Set headers to display inline (not download)
+    # Important: only set Content-Disposition: inline, not attachment
     headers = {
         "Content-Type": content_type,
         "Content-Disposition": "inline"
@@ -250,20 +250,20 @@ async def view_cv_file(file_id: int):
 @router.get("/files/{file_id}/content")
 async def get_cv_content(file_id: int):
     """
-    Lấy nội dung text của CV file theo ID
+    Get text content of CV file by ID
     
     Args:
-        file_id: ID của file
+        file_id: File ID
     
     Returns:
-        dict: Nội dung text của CV
+        dict: Text content of CV
     """
     file_info = get_file_by_id(file_id)
     
     if not file_info or file_info.get("file_type") != "cv":
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
-            detail=f"Không tìm thấy CV file với ID: {file_id}"
+            detail=f"CV file not found with ID: {file_id}"
         )
     
     content = file_info.get("content")
@@ -271,27 +271,27 @@ async def get_cv_content(file_id: int):
     return {
         "file_id": file_id,
         "filename": file_info.get("original_filename"),
-        "content": content if content else "Nội dung không có sẵn"
+        "content": content if content else "Content not available"
     }
 
 
 @router.get("/files/{file_id}", response_model=FileResponse)
 async def get_cv_file(file_id: int):
     """
-    Lấy thông tin chi tiết của một CV file theo ID
+    Get detailed information of a CV file by ID
     
     Args:
-        file_id: ID của file
+        file_id: File ID
     
     Returns:
-        FileResponse: Thông tin file
+        FileResponse: File information
     """
     file_info = get_file_by_id(file_id)
     
     if not file_info or file_info.get("file_type") != "cv":
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
-            detail=f"Không tìm thấy CV file với ID: {file_id}"
+            detail=f"CV file not found with ID: {file_id}"
         )
     
     return FileResponse(**file_info)
@@ -300,20 +300,20 @@ async def get_cv_file(file_id: int):
 @router.delete("/files/{file_id}", status_code=status.HTTP_204_NO_CONTENT)
 async def delete_cv_file(file_id: int):
     """
-    Xóa CV file và metadata từ database
+    Delete CV file and metadata from database
     
     Args:
-        file_id: ID của file cần xóa
+        file_id: ID of file to delete
     """
     file_info = get_file_by_id(file_id)
     
     if not file_info or file_info.get("file_type") != "cv":
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
-            detail=f"Không tìm thấy CV file với ID: {file_id}"
+            detail=f"CV file not found with ID: {file_id}"
         )
     
-    # Xóa file từ filesystem
+    # Delete file from filesystem
     file_path = Path(file_info["file_path"])
     if file_path.exists():
         try:
@@ -321,16 +321,16 @@ async def delete_cv_file(file_id: int):
         except Exception as e:
             raise HTTPException(
                 status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-                detail=f"Lỗi khi xóa file: {str(e)}"
+                detail=f"Error deleting file: {str(e)}"
             )
     
-    # Xóa từ database
+    # Delete from database
     deleted = delete_file_from_database(file_id)
     
     if not deleted:
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail="Lỗi khi xóa file từ database"
+            detail="Error deleting file from database"
         )
     
     return None
