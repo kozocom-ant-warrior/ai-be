@@ -7,18 +7,18 @@ from config import DATABASE_PATH
 
 
 def _column_exists(cursor: sqlite3.Cursor, table_name: str, column_name: str) -> bool:
-    """Kiểm tra xem cột có tồn tại trong bảng không"""
+    """Check if column exists in table"""
     cursor.execute(f"PRAGMA table_info({table_name})")
     columns = [row[1] for row in cursor.fetchall()]
     return column_name in columns
 
 
 def init_database():
-    """Khởi tạo database SQLite và tạo bảng nếu chưa tồn tại"""
+    """Initialize SQLite database and create tables if they don't exist"""
     conn = sqlite3.connect(DATABASE_PATH)
     cursor = conn.cursor()
     
-    # Bảng files cho cả JD và CV
+    # Files table for both JD and CV
     cursor.execute("""
         CREATE TABLE IF NOT EXISTS files (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -35,23 +35,23 @@ def init_database():
         )
     """)
     
-    # Migration: Thêm cột file_type nếu chưa có (cho database cũ)
+    # Migration: Add file_type column if it doesn't exist (for old database)
     if not _column_exists(cursor, "files", "file_type"):
         try:
             cursor.execute("ALTER TABLE files ADD COLUMN file_type TEXT")
-            print("✓ Đã thêm cột file_type vào bảng files")
+            print("✓ Added file_type column to files table")
         except sqlite3.OperationalError as e:
-            print(f"Warning: Không thể thêm cột file_type: {e}")
+            print(f"Warning: Could not add file_type column: {e}")
     
-    # Migration: Thêm cột content nếu chưa có (cho database cũ)
+    # Migration: Add content column if it doesn't exist (for old database)
     if not _column_exists(cursor, "files", "content"):
         try:
             cursor.execute("ALTER TABLE files ADD COLUMN content TEXT")
-            print("✓ Đã thêm cột content vào bảng files")
+            print("✓ Added content column to files table")
         except sqlite3.OperationalError as e:
-            print(f"Warning: Không thể thêm cột content: {e}")
+            print(f"Warning: Could not add content column: {e}")
     
-    # Tạo index để tìm kiếm nhanh hơn
+    # Create indexes for faster search
     cursor.execute("""
         CREATE INDEX IF NOT EXISTS idx_filename ON files(filename)
     """)
@@ -64,7 +64,7 @@ def init_database():
     
     conn.commit()
     conn.close()
-    print(f"✓ Database đã được khởi tạo: {DATABASE_PATH}")
+    print(f"✓ Database initialized: {DATABASE_PATH}")
 
 
 def save_file_to_database(
@@ -77,7 +77,7 @@ def save_file_to_database(
     file_type: Optional[str] = None,
     content: Optional[str] = None
 ) -> int:
-    """Lưu thông tin file vào database và trả về ID"""
+    """Save file information to database and return ID"""
     conn = sqlite3.connect(DATABASE_PATH)
     cursor = conn.cursor()
     
@@ -107,14 +107,14 @@ def save_file_to_database(
         conn.rollback()
         raise HTTPException(
             status_code=status.HTTP_409_CONFLICT,
-            detail=f"File với đường dẫn '{file_path}' đã tồn tại trong database"
+            detail=f"File with path '{file_path}' already exists in database"
         )
     finally:
         conn.close()
 
 
 def get_file_by_id(file_id: int) -> Optional[dict]:
-    """Lấy thông tin file từ database theo ID"""
+    """Get file information from database by ID"""
     conn = sqlite3.connect(DATABASE_PATH)
     conn.row_factory = sqlite3.Row
     cursor = conn.cursor()
@@ -133,19 +133,19 @@ def get_all_files(
     offset: int = 0, 
     file_type: Optional[str] = None
 ) -> tuple[List[dict], int]:
-    """Lấy danh sách tất cả files từ database"""
+    """Get list of all files from database"""
     conn = sqlite3.connect(DATABASE_PATH)
     conn.row_factory = sqlite3.Row
     cursor = conn.cursor()
     
-    # Đếm tổng số files
+    # Count total files
     if file_type:
         cursor.execute("SELECT COUNT(*) FROM files WHERE file_type = ?", (file_type,))
     else:
         cursor.execute("SELECT COUNT(*) FROM files")
     total = cursor.fetchone()[0]
     
-    # Lấy danh sách files
+    # Get file list
     if file_type:
         cursor.execute("""
             SELECT * FROM files 
@@ -168,7 +168,7 @@ def get_all_files(
 
 
 def delete_file_from_database(file_id: int) -> bool:
-    """Xóa file từ database"""
+    """Delete file from database"""
     conn = sqlite3.connect(DATABASE_PATH)
     cursor = conn.cursor()
     

@@ -15,10 +15,9 @@ ADVANCED_OPTIONS='{"scoreMatching":true,"cvPresentation":true,"interviewQuestion
 
 MAX_CV_COUNT="3"
 
-echo "Sending request to localhost:3000/thinking..."
-curl -X POST http://localhost:3000/thinking \
+echo "Sending request to localhost:8000/thinking/..."
+curl -X POST http://localhost:8000/thinking/ \
   -F "jd_text=$JD_TEXT" \
   -F "advanced_options=$ADVANCED_OPTIONS" \
   -F "max_cv_count=$MAX_CV_COUNT" \
-  -w "\n\nHTTP Status: %{http_code}\n" \
-  -v
+  -w "\n\nHTTP Status: %{http_code}\n"

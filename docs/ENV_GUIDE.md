@@ -2,15 +2,15 @@
 
 ## 📝 Required Variables
 
-Tạo file `.env` trong thư mục root:
+Create a `.env` file in the root directory:
 
 ```bash
 # OpenAI API Configuration
 OPENAI_API_KEY=sk-...your-key-here...
 
-# Model Configuration (Optional - có default values)
-OPENAI_MODEL=gpt-4o                      # Main model cho JD extraction
-OPENAI_MINI_MODEL=gpt-4o-mini            # Cheaper model cho CV extraction  
+# Model Configuration (Optional - has default values)
+OPENAI_MODEL=gpt-4o                      # Main model for JD extraction
+OPENAI_MINI_MODEL=gpt-4o-mini            # Cheaper model for CV extraction  
 OPENAI_EMBEDDING_MODEL=text-embedding-3-small  # Embedding model
 ```
 
@@ -20,7 +20,7 @@ OPENAI_EMBEDDING_MODEL=text-embedding-3-small  # Embedding model
 
 ### OPENAI_MODEL
 **Default:** `gpt-4o`  
-**Purpose:** JD extraction và requirement analysis  
+**Purpose:** JD extraction and requirement analysis  
 **Cost:** $2.50 input / $10.00 output per 1M tokens
 
 **Alternatives:**
@@ -30,7 +30,7 @@ OPENAI_EMBEDDING_MODEL=text-embedding-3-small  # Embedding model
 
 ### OPENAI_MINI_MODEL  
 **Default:** `gpt-4o-mini`  
-**Purpose:** CV extraction và matching  
+**Purpose:** CV extraction and matching  
 **Cost:** $0.150 input / $0.600 output per 1M tokens (16x cheaper!)
 
 **Alternatives:**
@@ -39,7 +39,7 @@ OPENAI_EMBEDDING_MODEL=text-embedding-3-small  # Embedding model
 
 ### OPENAI_EMBEDDING_MODEL
 **Default:** `text-embedding-3-small`  
-**Purpose:** Generate embeddings cho vector similarity  
+**Purpose:** Generate embeddings for vector similarity  
 **Cost:** $0.02 per 1M tokens
 
 **Alternatives:**
@@ -83,21 +83,21 @@ OPENAI_EMBEDDING_MODEL=text-embedding-ada-002
 ```python
 # Uses OPENAI_MODEL (gpt-4o)
 # 1 call per matching session
-# Extract requirements từ JD
+# Extract requirements from JD
 ```
 
 ### Stage 1B: CV Extraction  
 ```python
 # Uses OPENAI_MINI_MODEL (gpt-4o-mini)
 # ~7 calls per 100 CVs (batch processing)
-# Extract data từ CVs và match với requirements
+# Extract data from CVs and match with requirements
 ```
 
 ### Vector Similarity (Pre-filter)
 ```python
 # Uses OPENAI_EMBEDDING_MODEL (text-embedding-3-small)
 # 1 call per CV (but cached after first time!)
-# Generate embeddings cho similarity search
+# Generate embeddings for similarity search
 ```
 
 ---
@@ -109,18 +109,18 @@ OPENAI_EMBEDDING_MODEL=text-embedding-ada-002
 **Stage 1A (JD):**
 - Input: ~500 tokens
 - Output: ~200 tokens
-- Cost: $0.002 (với gpt-4o)
+- Cost: $0.002 (with gpt-4o)
 
 **Stage 1B (CVs):**
 - Input: ~50,000 tokens (7 batches × 7 CVs)
 - Output: ~15,000 tokens
-- Cost: $0.017 (với gpt-4o-mini)
+- Cost: $0.017 (with gpt-4o-mini)
 
 **Embeddings:**
 - First time: ~50,000 tokens (100 CVs)
-- Cost: $0.001 (cached sau đó = FREE!)
+- Cost: $0.001 (cached afterwards = FREE!)
 
-**Total:** ~$0.020 per session (sau khi có cache)
+**Total:** ~$0.020 per session (after cache is built)
 
 ---
 
@@ -130,11 +130,11 @@ OPENAI_EMBEDDING_MODEL=text-embedding-ada-002
 # 1. Copy example env
 cp .env.example .env
 
-# 2. Edit với API key của bạn
+# 2. Edit with your API key
 nano .env
 
-# 3. (Optional) Customize models nếu muốn
-# Nếu không set, sẽ dùng default values
+# 3. (Optional) Customize models if desired
+# If not set, default values will be used
 
 # 4. Restart server
 uv run python main.py
@@ -144,14 +144,14 @@ uv run python main.py
 
 ## ✅ Verification
 
-Check models đang được dùng:
+Check which models are being used:
 ```bash
-# Xem logs khi server start
+# View logs when server starts
 uv run python main.py
 
-# Output sẽ hiển thị:
-# Đang gọi OpenAI (gpt-4o) để extract requirements...
-# Đang gọi OpenAI API (gpt-4o-mini) cho batch 1...
+# Output will display:
+# Calling OpenAI (gpt-4o) to extract requirements...
+# Calling OpenAI API (gpt-4o-mini) for batch 1...
 # Generating new embedding via OpenAI API (text-embedding-3-small)...
 ```
 
@@ -160,17 +160,17 @@ uv run python main.py
 ## 🔧 Troubleshooting
 
 ### "Model not found"
-- Check model name spelling trong `.env`
-- Verify OpenAI API key có quyền access model đó
+- Check model name spelling in `.env`
+- Verify OpenAI API key has access to that model
 
 ### "Rate limit exceeded"  
-- Giảm BATCH_SIZE trong thinking.py
-- Hoặc đổi sang model rẻ hơn (ít rate limit)
+- Reduce BATCH_SIZE in thinking.py
+- Or switch to cheaper model (less rate limit)
 
 ### Costs too high
-- Enable vector cache (đã có sẵn)
-- Đổi OPENAI_MODEL sang gpt-4o-mini
-- Giảm số CVs process mỗi lần
+- Enable vector cache (already built-in)
+- Switch OPENAI_MODEL to gpt-4o-mini
+- Reduce number of CVs processed each time
 
 ---
 

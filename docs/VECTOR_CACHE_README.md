@@ -1,12 +1,12 @@
 # Vector Database Cache - Quick Start
 
-## 📦 Đã implement xong
+## 📦 Already Implemented
 
-Source code này **đã có RAG và Vector Cache** sử dụng ChromaDB để cache embeddings.
+This source code **already includes RAG and Vector Cache** using ChromaDB to cache embeddings.
 
 ## 🚀 Quick Commands
 
-### Xem ChromaDB cache
+### View ChromaDB cache
 ```bash
 # Test connection
 uv run python tools/test_chroma_connection.py
@@ -26,34 +26,34 @@ uv run python tools/chroma_inspector.py --collection cv_embeddings
 # FastAPI server (port 8000)
 uv run python main.py
 
-# ChromaDB server (port 8001) - Optional, chỉ cần nếu muốn remote access
+# ChromaDB server (port 8001) - Optional, only needed for remote access
 uv run chroma run --path ./chroma_db --port 8001
 ```
 
 ## 📊 Cache Strategy
 
 ### 1. CV Embeddings (Exact Match)
-- ✅ Cache mỗi khi tạo embedding cho CV
-- ✅ Dùng MD5 hash để check exact match
-- ✅ Tiết kiệm ~95% API cost sau lần đầu
+- ✅ Cache each time an embedding is created for CV
+- ✅ Use MD5 hash to check exact match
+- ✅ Save ~95% API cost after first time
 - **Collection**: `cv_embeddings`
 
 ### 2. JD Embeddings (Fuzzy Match)  
-- ✅ Cache với fuzzy matching (95% similarity)
-- ✅ Reuse embedding nếu JD chỉ thay đổi nhỏ (1-2 từ)
-- ✅ Tiết kiệm ~20% API cost cho JD minor edits
+- ✅ Cache with fuzzy matching (95% similarity)
+- ✅ Reuse embedding if JD changes only slightly (1-2 words)
+- ✅ Save ~20% API cost for JD minor edits
 - **Collection**: `jd_embeddings`
 
 ### 3. CV Extracted Data (Exact Match)
-- ✅ Cache parsed CV data với JD requirements matching
-- ✅ Key: `cv_hash + jd_hash` (phụ thuộc cả CV và JD)
-- ✅ Tiết kiệm Stage 1B processing (~$2-3 cho 50 CVs)
+- ✅ Cache parsed CV data with JD requirements matching
+- ✅ Key: `cv_hash + jd_hash` (depends on both CV and JD)
+- ✅ Save Stage 1B processing (~$2-3 for 50 CVs)
 - **Collection**: `cv_extracted_data`
 
 ### 4. Advanced Features (Exact Match)
 - ✅ Cache Stage 3 features (interview questions, CV analysis, job leveling)
 - ✅ Key: `jd_hash + cv_id + options_hash`
-- ✅ Tiết kiệm Stage 3 processing (~$1-2 cho 5 CVs)
+- ✅ Save Stage 3 processing (~$1-2 for 5 CVs)
 - **Collection**: `advanced_features`
 - **Features cached**:
   - `cv_presentation_comment` (object: structure, strengths, issues, highlights, suggestions)
@@ -76,7 +76,7 @@ TOTAL: $4.20 per matching
 Stage 0: 5 CV embeddings + 0 JD embedding = $0.01
 Stage 1B: 0 CVs (all cached) = $0.00
 Stage 3: 0 CVs (all cached) = $0.00
-TOTAL: $0.01 per matching (420x rẻ hơn!)
+TOTAL: $0.01 per matching (420x cheaper!)
 ```
 
 **Note**: Cache hit rate increases over time as more CVs/JDs are processed.
@@ -98,13 +98,13 @@ chroma_db/
     └── ... (interview questions, CV comments, job leveling)
 ```
 
-## 🔍 Cách hoạt động
+## 🔍 How It Works
 
 ### Upload CV Flow:
 ```
 1. Upload CV → Extract text → Save to database
 2. Generate embedding via OpenAI API ($$$)
-3. Cache embedding vào ChromaDB (FREE sau này)
+3. Cache embedding in ChromaDB (FREE afterwards)
 ```
 
 ### Matching Flow:
@@ -120,36 +120,36 @@ chroma_db/
 ## ⚠️ Important Notes
 
 ### ChromaDB Server
-- ❌ **KHÔNG có built-in Web UI** 
-- ✅ Chỉ là REST API endpoint
-- ✅ Để xem data, dùng Python scripts (đã tạo sẵn)
+- ❌ **NO built-in Web UI** 
+- ✅ Only REST API endpoint
+- ✅ To view data, use Python scripts (already created)
 
 ### For Local Development
 ```bash
-# Đủ dùng Persistent Client (không cần server)
+# Persistent Client is sufficient (no server needed)
 import chromadb
 client = chromadb.PersistentClient(path="./chroma_db")
 ```
 
 ### For Production
 ```bash
-# Start server để team access
+# Start server for team access
 uv run chroma run --path ./chroma_db --port 8001
 ```
 
 ## 📚 Documentation
 
 - [3_STAGE_PIPELINE.md](./3_STAGE_PIPELINE.md) - **3-stage pipeline details (READ FIRST!)**
-- [CHROMADB_CONNECTION_GUIDE.md](./CHROMADB_CONNECTION_GUIDE.md) - Chi tiết cách connect
-- [CHROMADB_VS_FAISS.md](./CHROMADB_VS_FAISS.md) - So sánh ChromaDB vs Faiss
-- [JD_CACHE_STRATEGY.md](./JD_CACHE_STRATEGY.md) - Chiến lược cache cho JD
-- [VECTOR_DB_GUIDE.md](./VECTOR_DB_GUIDE.md) - Hướng dẫn tổng quan
+- [CHROMADB_CONNECTION_GUIDE.md](./CHROMADB_CONNECTION_GUIDE.md) - Connection details
+- [CHROMADB_VS_FAISS.md](./CHROMADB_VS_FAISS.md) - ChromaDB vs Faiss comparison
+- [JD_CACHE_STRATEGY.md](./JD_CACHE_STRATEGY.md) - JD cache strategy
+- [VECTOR_DB_GUIDE.md](./VECTOR_DB_GUIDE.md) - General guide
 
 ## 🛠️ Tools
 
-- `tools/test_chroma_connection.py` - Test connection nhanh
-- `tools/chroma_inspector.py` - CLI tool để inspect ChromaDB
-- `db/vector_db.py` - Module quản lý cache
+- `tools/test_chroma_connection.py` - Quick connection test
+- `tools/chroma_inspector.py` - CLI tool to inspect ChromaDB
+- `db/vector_db.py` - Cache management module
 
 ## ✅ Status
 
@@ -164,5 +164,5 @@ uv run chroma run --path ./chroma_db --port 8001
 
 1. Upload CVs: `POST /cv/upload`
 2. Run matching: `POST /thinking`
-3. Check cache: `uv run python tools/chroma_inspector.py --stats`
+3. Check cache: `uv run python tools/cache/chroma_inspector.py --stats`
 4. Enjoy 20x cheaper API cost! 💰

@@ -1,4 +1,10 @@
 """Test emoji cleaning logic"""
+import sys
+from pathlib import Path
+
+# Add project root to path
+sys.path.insert(0, str(Path(__file__).parent.parent.parent))
+
 from utils import clean_text_for_embedding
 
 # Test cases

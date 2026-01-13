@@ -21,7 +21,7 @@ from typing import Optional
 import sys
 
 # ChromaDB path (relative to project root, same as in vector_db.py)
-CHROMA_DB_PATH = Path(__file__).parent.parent / "db" / "chroma_db"
+CHROMA_DB_PATH = Path(__file__).parent.parent.parent / "db" / "chroma_db"
 
 
 def get_client():

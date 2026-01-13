@@ -1,4 +1,4 @@
-"""Pydantic models cho API responses"""
+"""Pydantic models for API responses"""
 from typing import Optional, List
 from pydantic import BaseModel
 
@@ -13,8 +13,8 @@ class FileResponse(BaseModel):
     content_type: Optional[str]
     uploaded_at: str
     updated_at: str
-    file_type: Optional[str] = None  # 'jd' hoặc 'cv'
-    content: Optional[str] = None  # Nội dung text của file
+    file_type: Optional[str] = None  # 'jd' or 'cv'
+    content: Optional[str] = None  # Text content of file
 
 
 class FileListResponse(BaseModel):
@@ -23,9 +23,9 @@ class FileListResponse(BaseModel):
 
 
 class JDTextRequest(BaseModel):
-    """Model cho JD dạng text input"""
+    """Model for text input JD"""
     jd_text: str
-    job_title: Optional[str] = None  # Tên vị trí tuyển dụng (optional)
+    job_title: Optional[str] = None  # Job position title (optional)
     
     class Config:
         json_schema_extra = {

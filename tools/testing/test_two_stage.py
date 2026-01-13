@@ -1,6 +1,11 @@
 """Test script for Two-Stage approach"""
 import sys
 import json
+from pathlib import Path
+
+# Add project root to path
+sys.path.insert(0, str(Path(__file__).parent.parent.parent))
+
 from routers.thinking import CVScoringEngine
 
 def test_scoring_engine():
