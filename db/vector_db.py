@@ -30,6 +30,7 @@ logger.info("✅ ChromaDB client connected successfully")
 # Collections
 CV_COLLECTION_NAME = "cv_embeddings"
 JD_COLLECTION_NAME = "jd_embeddings"
+JD_REQUIREMENTS_COLLECTION = "jd_requirements_data"  # Cache cho Stage 1A: JD requirements extraction
 CV_EXTRACTED_DATA_COLLECTION = "cv_extracted_data"  # Cache cho extracted CV JSON
 ADVANCED_FEATURES_COLLECTION = "advanced_features"  # Cache cho Stage 3 advanced features
 
@@ -460,22 +461,102 @@ def get_cached_advanced_features(jd_hash: str, cv_ids: list, advanced_options: d
         return None
 
 
-def clear_cache(collection_name: Optional[str] = None):
+def cache_jd_requirements(jd_hash: str, requirements: dict) -> bool:
+    """
+    Cache JD requirements extraction result (Stage 1A)
+    
+    Args:
+        jd_hash: MD5 hash của JD text
+        requirements: Extracted requirements JSON
+        
+    Returns:
+        bool: True nếu cache thành công
+    """
+    try:
+        collection = _get_or_create_collection(JD_REQUIREMENTS_COLLECTION)
+        
+        # Use jd_hash as doc_id
+        doc_id = jd_hash
+        
+        collection.upsert(
+            ids=[doc_id],
+            documents=[json.dumps(requirements, ensure_ascii=False)],
+            metadatas=[{
+                "jd_hash": jd_hash,
+                "cached_at": time.time()
+            }]
+        )
+        
+        logger.info(f"✓ Cache JD requirements: {jd_hash[:16]}...")
+        return True
+        
+    except Exception as e:
+        logger.error(f"Lỗi khi cache JD requirements: {e}")
+        return False
+
+
+def get_cached_jd_requirements(jd_hash: str) -> Optional[dict]:
+    """
+    Lấy cached JD requirements từ ChromaDB
+    
+    Args:
+        jd_hash: MD5 hash của JD text
+        
+    Returns:
+        dict hoặc None nếu không tìm thấy
+    """
+    try:
+        collection = _get_or_create_collection(JD_REQUIREMENTS_COLLECTION)
+        doc_id = jd_hash
+        
+        result = collection.get(
+            ids=[doc_id],
+            include=["documents"]
+        )
+        
+        if result and result['documents'] and len(result['documents']) > 0:
+            logger.info(f"✓ Cache HIT: JD requirements (hash: {jd_hash[:16]}...)")
+            return json.loads(result['documents'][0])
+        else:
+            return None
+            
+    except Exception as e:
+        logger.warning(f"Lỗi khi lấy cached JD requirements: {e}")
+        return None
+
+
+def clear_cache(collection_name: Optional[str] = None) -> Tuple[int, List[str]]:
     """
     Xóa cache
     
     Args:
         collection_name: Tên collection cần xóa. None = xóa tất cả
+        
+    Returns:
+        Tuple[int, List[str]]: (số collections xóa thành công, list tên collections thất bại)
     """
-    try:
-        if collection_name:
-            client.delete_collection(name=collection_name)
-            logger.info(f"✓ Đã xóa collection: {collection_name}")
-        else:
-            client.delete_collection(name=CV_COLLECTION_NAME)
-            client.delete_collection(name=JD_COLLECTION_NAME)
-            client.delete_collection(name=CV_EXTRACTED_DATA_COLLECTION)
-            client.delete_collection(name=ADVANCED_FEATURES_COLLECTION)
-            logger.info("✓ Đã xóa tất cả cache")
-    except Exception as e:
-        logger.warning(f"Lỗi khi xóa cache: {e}")
+    failed = []
+    success_count = 0
+    
+    if collection_name:
+        collections_to_delete = [collection_name]
+    else:
+        collections_to_delete = [
+            CV_COLLECTION_NAME,
+            JD_COLLECTION_NAME,
+            JD_REQUIREMENTS_COLLECTION,
+            CV_EXTRACTED_DATA_COLLECTION,
+            ADVANCED_FEATURES_COLLECTION
+        ]
+    
+    for coll_name in collections_to_delete:
+        try:
+            client.delete_collection(name=coll_name)
+            logger.info(f"✓ Đã xóa collection: {coll_name}")
+            success_count += 1
+        except Exception as e:
+            # Collection không tồn tại hoặc lỗi khác
+            logger.warning(f"⚠️  Không thể xóa {coll_name}: {e}")
+            failed.append(coll_name)
+    
+    return success_count, failed

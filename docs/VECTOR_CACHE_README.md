@@ -32,39 +32,70 @@ uv run chroma run --path ./chroma_db --port 8001
 
 ## 📊 Cache Strategy
 
-### CV Embeddings (Exact Match)
+### 1. CV Embeddings (Exact Match)
 - ✅ Cache mỗi khi tạo embedding cho CV
 - ✅ Dùng MD5 hash để check exact match
 - ✅ Tiết kiệm ~95% API cost sau lần đầu
+- **Collection**: `cv_embeddings`
 
-### JD Embeddings (Fuzzy Match)  
+### 2. JD Embeddings (Fuzzy Match)  
 - ✅ Cache với fuzzy matching (95% similarity)
 - ✅ Reuse embedding nếu JD chỉ thay đổi nhỏ (1-2 từ)
 - ✅ Tiết kiệm ~20% API cost cho JD minor edits
+- **Collection**: `jd_embeddings`
+
+### 3. CV Extracted Data (Exact Match)
+- ✅ Cache parsed CV data với JD requirements matching
+- ✅ Key: `cv_hash + jd_hash` (phụ thuộc cả CV và JD)
+- ✅ Tiết kiệm Stage 1B processing (~$2-3 cho 50 CVs)
+- **Collection**: `cv_extracted_data`
+
+### 4. Advanced Features (Exact Match)
+- ✅ Cache Stage 3 features (interview questions, CV analysis, job leveling)
+- ✅ Key: `jd_hash + cv_id + options_hash`
+- ✅ Tiết kiệm Stage 3 processing (~$1-2 cho 5 CVs)
+- **Collection**: `advanced_features`
+- **Features cached**:
+  - `cv_presentation_comment` (object: structure, strengths, issues, highlights, suggestions)
+  - `interview_questions` (5 strategic questions)
+  - `job_leveling` (array) + `job_leveling_reason` (string)
+  - `cert_comment` (certification analysis)
 
 ## 💰 Cost Savings
 
-**Without cache:**
+**Without cache (100 CVs, 1 JD):**
 ```
-100 CVs × 1 matching = 100 API calls = $0.20
+Stage 0: 100 CV embeddings + 1 JD embedding = $0.20
+Stage 1B: 50 CVs extraction (10 batches) = $2.50
+Stage 3: 5 CVs advanced features = $1.50
+TOTAL: $4.20 per matching
 ```
 
 **With cache (95% hit rate):**
 ```
-100 CVs × 1 matching = 5 API calls = $0.01 (20x rẻ hơn!)
+Stage 0: 5 CV embeddings + 0 JD embedding = $0.01
+Stage 1B: 0 CVs (all cached) = $0.00
+Stage 3: 0 CVs (all cached) = $0.00
+TOTAL: $0.01 per matching (420x rẻ hơn!)
 ```
+
+**Note**: Cache hit rate increases over time as more CVs/JDs are processed.
 
 ## 📁 ChromaDB Structure
 
 ```
 chroma_db/
-├── chroma.sqlite3           # Metadata (SQLite)
-├── cv_embeddings/           # CV embedding vectors
+├── chroma.sqlite3              # Metadata (SQLite)
+├── cv_embeddings/              # CV embedding vectors (Stage 0)
 │   ├── data_level0.bin
 │   └── header.bin
-└── jd_embeddings/           # JD embedding vectors
-    ├── data_level0.bin
-    └── header.bin
+├── jd_embeddings/              # JD embedding vectors (Stage 0)
+│   ├── data_level0.bin
+│   └── header.bin
+├── cv_extracted_data/          # Parsed CV JSONs (Stage 1B)
+│   └── ... (extracted requirements matching)
+└── advanced_features/          # Advanced analysis (Stage 3)
+    └── ... (interview questions, CV comments, job leveling)
 ```
 
 ## 🔍 Cách hoạt động
@@ -108,6 +139,7 @@ uv run chroma run --path ./chroma_db --port 8001
 
 ## 📚 Documentation
 
+- [3_STAGE_PIPELINE.md](./3_STAGE_PIPELINE.md) - **3-stage pipeline details (READ FIRST!)**
 - [CHROMADB_CONNECTION_GUIDE.md](./CHROMADB_CONNECTION_GUIDE.md) - Chi tiết cách connect
 - [CHROMADB_VS_FAISS.md](./CHROMADB_VS_FAISS.md) - So sánh ChromaDB vs Faiss
 - [JD_CACHE_STRATEGY.md](./JD_CACHE_STRATEGY.md) - Chiến lược cache cho JD

@@ -111,34 +111,51 @@ Hệ thống sử dụng pipeline 3 giai đoạn để matching CVs với Job De
 ╚═════════════════════════════════════════════════════════════════════════╝
                                       ↓
 ╔═════════════════════════════════════════════════════════════════════════╗
-║      STAGE 3: Advanced Features (GPT-4o-mini, Per-CV Cached)            ║
+║      STAGE 3: Advanced Features (GPT-4o-mini, Batched Per-CV)           ║
 ╠═════════════════════════════════════════════════════════════════════════╣
-║  Model: gpt-4o-mini (or gpt-4o for higher quality)                      ║
+║  Model: gpt-4o-mini (max_tokens=6000, temperature=0.1)                  ║
 ║  Input: Top 5 CVs (max_cv_count) + JD + Requirements + Options          ║
+║  Batch Size: 1 CV per batch (STAGE3_BATCH_SIZE = 1)                     ║
 ║  Process:                                                               ║
-║    For each of top 5 CVs:                                              ║
+║    For each of top 5 CVs (in batches of 1):                            ║
 ║      1. Check cache: jd_hash + cv_id + options_hash                    ║
 ║      2. If MISS → Call GPT to generate:                                ║
-║         - Interview questions (tailored)                               ║
-║         - CV presentation comment                                      ║
-║         - Certification benefits analysis                              ║
-║         - Rank assessment                               ║
-║         - Duplicate detection warning                                  ║
-║      3. Cache result → advanced_features                               ║
+║         - cv_presentation_comment (OBJECT):                            ║
+║           {                                                            ║
+║             "structure": "Layout/sections analysis",                  ║
+║             "strengths": ["Point 1", "Point 2", "Point 3"],           ║
+║             "issues": ["Issue 1", "Issue 2", "Issue 3"],              ║
+║             "highlights": "Notable projects/achievements",            ║
+║             "suggestions": ["Action 1", "Action 2", "Action 3"]       ║
+║           }                                                            ║
+║         - interview_questions (5 strategic questions)                  ║
+║         - job_leveling (array: ["Junior", "Mid"])                     ║
+║         - job_leveling_reason (string: 30-50 words)                   ║
+║         - cert_comment (certification analysis)                        ║
+║      3. Extract JSON using find/rfind to handle multiple ``` markers  ║
+║      4. Cache result → advanced_features                              ║
 ║  ─────────────────────────────────────────────────────────────────────  ║
 ║  💾 Cache: advanced_features (key: jd_hash + cv_id + options_hash)     ║
 ║  💰 Cost: $0 (cache HIT) / ~$1-2 (cache MISS for 5 CVs)                ║
-║  ⏱️  Time: ~1s (cache HIT) / ~10-20s (cache MISS)                      ║
+║  ⏱️  Time: ~1s (cache HIT) / ~15-25s (cache MISS, 5 batches × 3-5s)   ║
+║  🔧 Why Batch=1: Complex nested JSON structure + max_tokens limit      ║
 ╠═════════════════════════════════════════════════════════════════════════╣
 ║  OUTPUT: Top 5 CVs with advanced features                               ║
 ║          {                                                              ║
 ║            "cv_id": "cv_abc",                                           ║
 ║            "candidate_name": "Nguyen Van A",                            ║
 ║            "score": 97.5,                                               ║
-║            "interview_questions": ["Q1", "Q2", "Q3"],                  ║
-║            "cv_presentation_comment": "Ứng viên có profile mạnh...",   ║
-║            "cert_comment": "Đề xuất: AWS Certified Developer...",      ║
-║            "job_leveling": ["Fresher", ...]                   ║
+║            "cv_presentation_comment": {                                ║
+║              "structure": "Chronological, 4 sections, clear",          ║
+║              "strengths": ["Metrics in projects", "Categorized skills"],║
+║              "issues": ["Too long experience section"],                ║
+║              "highlights": "Real-time Chat App with 10K users",        ║
+║              "suggestions": ["Add summary", "Shorten old projects"]    ║
+║            },                                                           ║
+║            "interview_questions": ["Q1", "Q2", "Q3", "Q4", "Q5"],     ║
+║            "job_leveling": ["Junior", "Mid"],                          ║
+║            "job_leveling_reason": "2 years exp. Strong React/TS...",  ║
+║            "cert_comment": "Suggest AWS Certified Developer..."        ║
 ║          }                                                              ║
 ╚═════════════════════════════════════════════════════════════════════════╝
                                       ↓
@@ -839,7 +856,57 @@ doc_id = f"advanced_{jd_hash[:16]}_{cv_id}_{options_hash[:8]}"
 
 **Workaround**: Encourage users to decide options upfront
 
-### **Issue 3: Pre-filter Threshold Fixed at 50**
+### **Issue 3: Stage 3 Batch Size Optimization**
+
+**Evolution:**
+```python
+# V1: Multiple CVs per batch (faster but risky)
+STAGE3_BATCH_SIZE = 5  # ⚠️ JSON truncation risk
+
+# V2: Reduced for complex prompts
+STAGE3_BATCH_SIZE = 2  # Still truncating
+
+# V3: Current - 1 CV per batch (stable)
+STAGE3_BATCH_SIZE = 1  # ✅ No truncation
+```
+
+**Problem:** 
+Complex nested JSON structure (cv_presentation_comment object with 5 fields) + lengthy prompts caused GPT to truncate responses even with max_tokens=16000.
+
+**Solution:**
+1. Reduced batch size from 5 → 1 CV per batch
+2. Optimized prompts (removed verbose examples, shortened requirements)
+3. max_tokens=6000 (sufficient for 1 CV)
+4. JSON extraction using find()/rfind() instead of split() to handle multiple ``` markers
+
+**Trade-offs:**
+- ✅ Pros: Stable JSON parsing, complete responses
+- ❌ Cons: 5x more API calls (5 CVs = 5 batches), slower by ~10-15s
+
+### **Issue 4: Prompt Size Optimization**
+
+**Problem:**
+```python
+# OLD: Verbose prompts (~2000 tokens)
+- cv_presentation_comment: "Phân tích CHUYÊN SÂU về CV (100-150 từ)..."
+- GOOD EXAMPLE: 300+ words of examples
+- job_leveling_reason: "50-80 từ" with detailed rubrics
+```
+
+**Solution:**
+```python
+# NEW: Concise prompts (~800 tokens, 60% reduction)
+- cv_presentation_comment: "OBJECT - mỗi field 1-2 câu" (no examples)
+- PHƯƠNG PHÁP: 4 steps instead of 15 lines
+- job_leveling_reason: "2-3 câu (30-50 từ)"
+```
+
+**Result:**
+- More tokens for output (6000 now sufficient vs 16000 before)
+- Faster responses (less input processing)
+- Quality maintained (instructions still clear)
+
+### **Issue 5: Pre-filter Threshold Fixed at 50**
 
 **Problem:**
 ```python
@@ -862,8 +929,8 @@ PRE_FILTER_THRESHOLD = 50
 | Stage 1A | ~2-5s | JD extraction (1 call) |
 | Stage 1B | ~60-120s | CV extraction (8-9 batches × 5 CVs) |
 | Stage 2 | < 0.1s | Pure Python |
-| Stage 3 | ~10-20s | Advanced features (5 CVs) |
-| **TOTAL** | **~100-200s** | **1.5-3.5 minutes** |
+| Stage 3 | ~15-25s | Advanced features (5 batches × 1 CV, 3-5s each) |
+| **TOTAL** | **~110-215s** | **1.8-3.6 minutes** |
 
 ### **Processing Time** (41 CVs, Cache HIT)
 | Stage | Time | Notes |
@@ -909,10 +976,14 @@ PRE_FILTER_THRESHOLD = 50
 ### **For Developers**
 
 1. **Monitor cache hit rates**: Log cache statistics để optimize
-2. **Adjust batch size**: BATCH_SIZE = 5 là optimal cho GPT-4o-mini
+2. **Adjust batch size**: 
+   - Stage 1B: BATCH_SIZE = 5 optimal cho GPT-4o-mini
+   - Stage 3: STAGE3_BATCH_SIZE = 1 for complex JSON structures
 3. **Handle rate limits**: Implement exponential backoff retry
 4. **Validate JSON parsing**: Always handle `json.JSONDecodeError`
 5. **Test cache invalidation**: Ensure cache keys correctly reflect dependencies
+6. **Optimize prompts**: Keep prompts concise (~800 tokens) to maximize output tokens
+7. **JSON extraction**: Use find()/rfind() instead of split() for robustness
 
 ---
 
@@ -922,9 +993,14 @@ PRE_FILTER_THRESHOLD = 50
 ```python
 OPENAI_MODEL = "gpt-4o"  # High accuracy for JD extraction
 OPENAI_MINI_MODEL = "gpt-4o-mini"  # Cost-effective for CV extraction
-BATCH_SIZE = 5  # CVs per API call
+BATCH_SIZE = 5  # CVs per API call (Stage 1B)
+STAGE3_BATCH_SIZE = 1  # CVs per API call (Stage 3 - reduced for complex JSON)
 PRE_FILTER_THRESHOLD = 50  # When to apply vector filtering
 PRE_FILTER_TOP_N = 50  # Number of CVs to keep after filtering
+
+# Stage 3 GPT settings
+STAGE3_MAX_TOKENS = 6000  # Sufficient for 1 CV with complex structure
+STAGE3_TEMPERATURE = 0.1  # Slight creativity for better JSON completion
 ```
 
 ### **Cache Collections**
