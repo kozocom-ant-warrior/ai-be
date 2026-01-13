@@ -639,8 +639,8 @@ async def thinking_dump(request: Request):
                     response = client.chat.completions.create(
                         model=model,
                         messages=messages,
-                        temperature=0,  # 0 = hoàn toàn deterministic
-                        max_tokens=6000  # Đủ cho 5-8 CVs/batch, không quá lớn
+                        temperature=0.1,  # Tăng nhẹ để GPT focus hơn vào hoàn thành JSON
+                        max_tokens=6000  # Tăng lên cho Stage 3 với cv_presentation_comment object
                     )
                     elapsed_time = time.time() - start_time
                     
@@ -673,33 +673,50 @@ async def thinking_dump(request: Request):
         total_tokens = 0
         
         try:
-            # Extract requirements từ JD - dùng GPT-4o cho accuracy cao
-            extraction_prompt = get_extraction_prompt(jd_text, response_requirement)
-            logger.info(f"Đang gọi OpenAI ({OPENAI_MODEL}) để extract requirements từ JD...")
+            # Tạo JD hash cho cache (Stage 1A cache key)
+            jd_hash_for_stage1a = hashlib.md5(jd_text.encode('utf-8')).hexdigest()
             
-            extraction_response = call_openai_with_retry(
-                messages=[
-                    {"role": "system", "content": "Bạn là một chuyên gia phân tích Job Description. Trả về CHÍNH XÁC JSON như yêu cầu."},
-                    {"role": "user", "content": extraction_prompt}
-                ],
-                model=OPENAI_MODEL
-            )
+            # Initialize stage1a_usage (default to None, set if cache MISS)
+            stage1a_usage = None
             
-            requirements_text = extraction_response.choices[0].message.content.strip()
+            # Check cache trước khi gọi OpenAI
+            logger.info(f"🔍 Checking cache for JD requirements (hash: {jd_hash_for_stage1a[:16]}...)")
+            requirements = vector_db.get_cached_jd_requirements(jd_hash_for_stage1a)
             
-            # Parse JSON từ response
-            if "```json" in requirements_text:
-                requirements_text = requirements_text.split("```json")[1].split("```")[0].strip()
-            elif "```" in requirements_text:
-                requirements_text = requirements_text.split("```")[1].split("```")[0].strip()
-            
-            requirements = json.loads(requirements_text)
-            
-            # Track tokens từ Stage 1A
-            stage1a_usage = extraction_response.usage
-            total_prompt_tokens += stage1a_usage.prompt_tokens
-            total_completion_tokens += stage1a_usage.completion_tokens
-            total_tokens += stage1a_usage.total_tokens
+            if requirements:
+                logger.info(f"✅ Cache HIT: Using cached JD requirements")
+            else:
+                # Cache MISS - gọi OpenAI
+                logger.info(f"❌ Cache MISS: Calling OpenAI ({OPENAI_MODEL}) to extract requirements from JD...")
+                extraction_prompt = get_extraction_prompt(jd_text, response_requirement)
+                
+                extraction_response = call_openai_with_retry(
+                    messages=[
+                        {"role": "system", "content": "Bạn là một chuyên gia phân tích Job Description. Trả về CHÍNH XÁC JSON như yêu cầu."},
+                        {"role": "user", "content": extraction_prompt}
+                    ],
+                    model=OPENAI_MODEL
+                )
+                
+                requirements_text = extraction_response.choices[0].message.content.strip()
+                
+                # Parse JSON từ response
+                if "```json" in requirements_text:
+                    requirements_text = requirements_text.split("```json")[1].split("```")[0].strip()
+                elif "```" in requirements_text:
+                    requirements_text = requirements_text.split("```")[1].split("```")[0].strip()
+                
+                requirements = json.loads(requirements_text)
+                
+                # Track tokens từ Stage 1A
+                stage1a_usage = extraction_response.usage
+                total_prompt_tokens += stage1a_usage.prompt_tokens
+                total_completion_tokens += stage1a_usage.completion_tokens
+                total_tokens += stage1a_usage.total_tokens
+                
+                # Cache kết quả
+                vector_db.cache_jd_requirements(jd_hash_for_stage1a, requirements)
+                logger.info(f"💾 Cached JD requirements for future use")
             
             logger.info(f"✓ Extracted requirements:")
             logger.info(f"  - Role: {requirements.get('role_type')}")
@@ -1027,53 +1044,92 @@ async def thinking_dump(request: Request):
                 logger.info(f"Cache status: {len(cached_cvs)} hits, {len(uncached_cvs)} misses")
                 
                 # Nếu có CVs chưa cache, gọi OpenAI CHỈ cho các CVs đó
+                # CHIA BATCHES để tránh response quá dài bị truncate
+                STAGE3_BATCH_SIZE = 1  # 1 CV/batch cho Stage 3 (prompt rất dài với examples chi tiết)
                 newly_generated = []
+                
                 if len(uncached_cvs) > 0:
                     logger.info(f"🔄 Generating advanced features for {len(uncached_cvs)} uncached CVs...")
                     
-                    # Generate prompt CHỈ cho uncached CVs
-                    advanced_prompt = get_stage3_advanced_prompt(uncached_cvs, jd_text, requirements, advanced_options)
+                    # Chia thành batches
+                    stage3_batches = [uncached_cvs[i:i + STAGE3_BATCH_SIZE] for i in range(0, len(uncached_cvs), STAGE3_BATCH_SIZE)]
+                    logger.info(f"Chia {len(uncached_cvs)} CVs thành {len(stage3_batches)} batch(es) ({STAGE3_BATCH_SIZE} CVs/batch)")
                     
-                    if advanced_prompt:
-                        # Call OpenAI
-                        logger.info(f"Đang gọi OpenAI API ({OPENAI_MINI_MODEL}) cho {len(uncached_cvs)} CVs...")
-                        stage3_response = call_openai_with_retry(
-                            messages=[
-                                {"role": "system", "content": "Bạn là chuyên gia tuyển dụng AI. Tạo advanced features cho CVs. Trả về CHÍNH XÁC JSON như yêu cầu."},
-                                {"role": "user", "content": advanced_prompt}
-                            ],
-                            model=OPENAI_MINI_MODEL
-                        )
+                    for batch_idx, batch_cvs in enumerate(stage3_batches, 1):
+                        logger.info(f"📦 Processing Stage 3 batch {batch_idx}/{len(stage3_batches)} ({len(batch_cvs)} CVs)...")
                         
-                        # Parse response
-                        stage3_text = stage3_response.choices[0].message.content.strip()
+                        # Generate prompt CHỈ cho batch này
+                        advanced_prompt = get_stage3_advanced_prompt(batch_cvs, jd_text, requirements, advanced_options)
                         
-                        # DEBUG: Log GPT response for job_leveling
-                        logger.info("=" * 80)
-                        logger.info("🔍 STAGE 3 GPT RESPONSE DEBUG:")
-                        logger.info(f"Response length: {len(stage3_text)} chars")
-                        logger.info(f"First 500 chars: {stage3_text[:500]}")
-                        logger.info(f"Contains 'job_leveling': {'job_leveling' in stage3_text}")
-                        logger.info("=" * 80)
-                        
-                        # Extract JSON
-                        if "```json" in stage3_text:
-                            stage3_text = stage3_text.split("```json")[1].split("```")[0].strip()
-                        elif "```" in stage3_text:
-                            stage3_text = stage3_text.split("```")[1].split("```")[0].strip()
-                        
-                        newly_generated = json.loads(stage3_text)
-                        
-                        # Track tokens
-                        stage3_usage = stage3_response.usage
-                        total_prompt_tokens += stage3_usage.prompt_tokens
-                        total_completion_tokens += stage3_usage.completion_tokens
-                        total_tokens += stage3_usage.total_tokens
-                        
-                        # Cache kết quả (từng CV riêng lẻ)
-                        uncached_cv_ids = [cv.get('file_id') for cv in uncached_cvs]
-                        vector_db.cache_advanced_features(jd_hash, uncached_cv_ids, advanced_options, newly_generated)
-                        logger.info(f"✓ Cached Stage 3 advanced features for {len(newly_generated)} newly generated CVs")
+                        if advanced_prompt:
+                            # Call OpenAI
+                            logger.info(f"Đang gọi OpenAI API ({OPENAI_MINI_MODEL}) cho batch {batch_idx}...")
+                            stage3_response = call_openai_with_retry(
+                                messages=[
+                                    {"role": "system", "content": "Bạn là chuyên gia tuyển dụng AI. QUAN TRỌNG: Bạn PHẢI trả về JSON array HOÀN CHỈNH với tất cả fields được yêu cầu. KHÔNG DỪNG giữa chừng. Kiểm tra JSON có đóng đủ dấu ngoặc {{ }}, [ ], trước khi kết thúc."},
+                                    {"role": "user", "content": advanced_prompt}
+                                ],
+                                model=OPENAI_MINI_MODEL
+                            )
+                            
+                            # Parse response
+                            stage3_text = stage3_response.choices[0].message.content.strip()
+                            finish_reason = stage3_response.choices[0].finish_reason
+                            
+                            # DEBUG: Log GPT response for job_leveling
+                            logger.info("=" * 80)
+                            logger.info(f"🔍 STAGE 3 BATCH {batch_idx} GPT RESPONSE DEBUG:")
+                            logger.info(f"Response length: {len(stage3_text)} chars")
+                            logger.info(f"Finish reason: {finish_reason}")
+                            logger.info(f"First 500 chars: {stage3_text[:500]}")
+                            logger.info(f"Last 200 chars: ...{stage3_text[-200:]}")
+                            logger.info(f"Contains 'job_leveling': {'job_leveling' in stage3_text}")
+                            logger.info("=" * 80)
+                            
+                            # Extract JSON - FIX: Lấy toàn bộ giữa first và last ```
+                            if "```json" in stage3_text:
+                                # Tìm vị trí bắt đầu sau ```json
+                                start_idx = stage3_text.find("```json") + len("```json")
+                                # Tìm vị trí kết thúc (``` cuối cùng)
+                                end_idx = stage3_text.rfind("```")
+                                if end_idx > start_idx:
+                                    stage3_text = stage3_text[start_idx:end_idx].strip()
+                            elif "```" in stage3_text:
+                                # Tìm vị trí sau ``` đầu tiên
+                                start_idx = stage3_text.find("```") + 3
+                                # Tìm vị trí ``` cuối cùng
+                                end_idx = stage3_text.rfind("```")
+                                if end_idx > start_idx:
+                                    stage3_text = stage3_text[start_idx:end_idx].strip()
+                            
+                            # Debug: Log GPT response trước khi parse
+                            logger.info("=" * 80)
+                            logger.info(f"🔍 STAGE 3 BATCH {batch_idx} GPT RESPONSE (first 1000 chars):")
+                            logger.info(stage3_text[:1000])
+                            logger.info("=" * 80)
+                            
+                            batch_generated = json.loads(stage3_text)
+                            
+                            # Track tokens
+                            stage3_usage = stage3_response.usage
+                            total_prompt_tokens += stage3_usage.prompt_tokens
+                            total_completion_tokens += stage3_usage.completion_tokens
+                            total_tokens += stage3_usage.total_tokens
+                            
+                            # Thêm vào newly_generated
+                            if isinstance(batch_generated, list):
+                                newly_generated.extend(batch_generated)
+                            else:
+                                newly_generated.append(batch_generated)
+                            
+                            logger.info(f"✓ Batch {batch_idx} completed: Generated {len(batch_generated) if isinstance(batch_generated, list) else 1} CV(s)")
+                    
+                    logger.info(f"✓ Stage 3 batching completed: Generated {len(newly_generated)} total CVs")
+                    
+                    # Cache kết quả (từng CV riêng lẻ)
+                    uncached_cv_ids = [cv.get('file_id') for cv in uncached_cvs]
+                    vector_db.cache_advanced_features(jd_hash, uncached_cv_ids, advanced_options, newly_generated)
+                    logger.info(f"✓ Cached Stage 3 advanced features for {len(newly_generated)} newly generated CVs")
                 
                 # Merge cached + newly generated
                 advanced_data = cached_cvs + newly_generated
@@ -1113,13 +1169,24 @@ async def thinking_dump(request: Request):
         # Tính cost ước tính
         # Stage 1A: gpt-4o ($2.50 input, $10.00 output per 1M tokens)
         # Stage 1B: gpt-4o-mini ($0.150 input, $0.600 output per 1M tokens)
-        # Giả sử Stage 1A dùng ~10% tokens (1 call vs 6 calls)
-        stage1a_tokens = stage1a_usage.prompt_tokens + stage1a_usage.completion_tokens
-        stage1b_prompt = total_prompt_tokens - stage1a_usage.prompt_tokens
-        stage1b_completion = total_completion_tokens - stage1a_usage.completion_tokens
         
-        cost_1a_input = (stage1a_usage.prompt_tokens / 1_000_000) * 2.50
-        cost_1a_output = (stage1a_usage.completion_tokens / 1_000_000) * 10.00
+        if stage1a_usage:
+            # Cache MISS - có token usage từ OpenAI
+            stage1a_tokens = stage1a_usage.prompt_tokens + stage1a_usage.completion_tokens
+            stage1b_prompt = total_prompt_tokens - stage1a_usage.prompt_tokens
+            stage1b_completion = total_completion_tokens - stage1a_usage.completion_tokens
+            
+            cost_1a_input = (stage1a_usage.prompt_tokens / 1_000_000) * 2.50
+            cost_1a_output = (stage1a_usage.completion_tokens / 1_000_000) * 10.00
+        else:
+            # Cache HIT - không có token usage cho Stage 1A
+            stage1a_tokens = 0
+            stage1b_prompt = total_prompt_tokens
+            stage1b_completion = total_completion_tokens
+            
+            cost_1a_input = 0
+            cost_1a_output = 0
+        
         cost_1b_input = (stage1b_prompt / 1_000_000) * 0.150
         cost_1b_output = (stage1b_completion / 1_000_000) * 0.600
         total_cost = cost_1a_input + cost_1a_output + cost_1b_input + cost_1b_output
