@@ -30,7 +30,7 @@ The system uses a 3-stage pipeline to match CVs with Job Description (JD):
 ║    5. Return top 50 CVs                                                 ║
 ║  ─────────────────────────────────────────────────────────────────────  ║
 ║  💾 Cache: cv_embeddings (100 entries) + jd_embeddings (1 entry)       ║
-║  💰 Cost: ~$0.013 (if cache MISS)                                       ║
+║  💰 Cost: ~$0.0066 (if cache MISS)                                      ║
 ║  ⏱️  Time: ~30-60s (cache MISS) / ~1s (cache HIT)                      ║
 ╠═════════════════════════════════════════════════════════════════════════╣
 ║  OUTPUT: 50 CVs (similarity: 0.85-0.92)                                 ║
@@ -51,7 +51,7 @@ The system uses a 3-stage pipeline to match CVs with Job Description (JD):
 ║    }                                                                    ║
 ║  ─────────────────────────────────────────────────────────────────────  ║
 ║  💾 Cache: ❌ No cache                                                  ║
-║  💰 Cost: ~$0.01                                                        ║
+║  💰 Cost: ~$0.003                                                       ║
 ║  ⏱️  Time: ~2-5s                                                        ║
 ╠═════════════════════════════════════════════════════════════════════════╣
 ║  OUTPUT: Requirements JSON                                              ║
@@ -81,8 +81,8 @@ The system uses a 3-stage pipeline to match CVs with Job Description (JD):
 ║      4. Cache result → cv_extracted_data                               ║
 ║  ─────────────────────────────────────────────────────────────────────  ║
 ║  💾 Cache: cv_extracted_data (key: cv_hash + jd_hash)                  ║
-║  💰 Cost: $0 (cache HIT) / ~$2-3 (cache MISS for 50 CVs)               ║
-║  ⏱️  Time: ~1s (cache HIT) / ~60-120s (cache MISS)                     ║
+║  💰 Cost: $0 (cache HIT) / ~$0.012-0.018 (41-50 CVs, cache MISS)      ║
+║  ⏱️  Time: ~1s (cache HIT) / ~300-350s (cache MISS, 41-50 CVs)        ║
 ╠═════════════════════════════════════════════════════════════════════════╣
 ║  OUTPUT: 50 CV JSONs with matched requirements                          ║
 ╚═════════════════════════════════════════════════════════════════════════╝
@@ -136,8 +136,8 @@ The system uses a 3-stage pipeline to match CVs with Job Description (JD):
 ║      4. Cache result → advanced_features                              ║
 ║  ─────────────────────────────────────────────────────────────────────  ║
 ║  💾 Cache: advanced_features (key: jd_hash + cv_id + options_hash)     ║
-║  💰 Cost: $0 (cache HIT) / ~$1-2 (cache MISS for 5 CVs)                ║
-║  ⏱️  Time: ~1s (cache HIT) / ~15-25s (cache MISS, 5 batches × 3-5s)   ║
+║  💰 Cost: $0 (cache HIT) / ~$0.015 (cache MISS for 5 CVs)              ║
+║  ⏱️  Time: ~1s (cache HIT) / ~7-10s (cache MISS, 5 batches × 1.5s)    ║
 ║  🔧 Why Batch=1: Complex nested JSON structure + max_tokens limit      ║
 ╠═════════════════════════════════════════════════════════════════════════╣
 ║  OUTPUT: Top 5 CVs with advanced features                               ║
@@ -162,9 +162,9 @@ The system uses a 3-stage pipeline to match CVs with Job Description (JD):
 ┌─────────────────────────────────────────────────────────────────────────┐
 │                    FINAL RESPONSE: Top 5 CVs                            │
 │                                                                         │
-│  💰 Total Cost (cache MISS): ~$3-5                                      │
-│  💰 Total Cost (cache HIT): ~$0.01                                      │
-│  ⏱️  Total Time (cache MISS): ~100-200s (1.5-3.5 minutes)              │
+│  💰 Total Cost (cache MISS): ~$0.017-0.043 (41-50 CVs)                │
+│  💰 Total Cost (cache HIT): ~$0.003                                     │
+│  ⏱️  Total Time (cache MISS): ~320-370s (5.3-6.2 minutes)              │
 │  ⏱️  Total Time (cache HIT): ~3-5s                                      │
 └─────────────────────────────────────────────────────────────────────────┘
 ```
@@ -338,7 +338,7 @@ Return JSON:
 ### **Cost**
 | Item | Model | Tokens | Cost |
 |------|-------|--------|------|
-| JD extraction | gpt-4o | ~500 input + 200 output | ~$0.01 |
+| JD extraction | gpt-4o | ~500 input + 200 output | ~$0.003 ($2.50 × 500 / 1M + $10 × 200 / 1M) |
 
 ---
 
@@ -500,9 +500,10 @@ for cv_data in batch_cv_data:
 ### **Cost**
 | Scenario | CVs to extract | Model | Cost |
 |----------|----------------|-------|------|
-| Cache MISS (all 50) | 50 CVs | gpt-4o-mini | ~$2-3 |
+| Cache MISS (50 CVs) | 50 CVs (~40K input + 20K output tokens) | gpt-4o-mini | ~$0.018 ($0.006 input + $0.012 output) |
+| Cache MISS (41 CVs - real example) | 41 CVs (~20.7K input + 15.3K output tokens) | gpt-4o-mini | ~$0.012 ($0.003 input + $0.009 output) |
 | Cache HIT (all 50) | 0 CVs | - | $0 |
-| Partial (30 hit, 20 miss) | 20 CVs | gpt-4o-mini | ~$0.8-1.2 |
+| Partial (30 hit, 20 miss) | 20 CVs (~16K input + 8K output tokens) | gpt-4o-mini | ~$0.007 |
 
 ---
 
@@ -773,9 +774,9 @@ Total advanced data: 3 cached + 2 new = 5 CVs
 ### **Cost**
 | Scenario | CVs to generate | Model | Cost |
 |----------|-----------------|-------|------|
-| Cache MISS (all 5) | 5 CVs | gpt-4o-mini | ~$1-2 |
+| Cache MISS (all 5) | 5 CVs (~5K input + 3K output tokens) | gpt-4o-mini | ~$0.015 ($0.0075 input + $0.008 output) |
 | Cache HIT (all 5) | 0 CVs | - | $0 |
-| Partial (3 hit, 2 miss) | 2 CVs | gpt-4o-mini | ~$0.4-0.8 |
+| Partial (3 hit, 2 miss) | 2 CVs (~2K input + 1.2K output tokens) | gpt-4o-mini | ~$0.006 |
 
 ---
 
@@ -784,37 +785,39 @@ Total advanced data: 3 cached + 2 new = 5 CVs
 ### **Scenario 1: First Request (All Cache MISS)**
 | Stage | Activity | Model | Cost |
 |-------|----------|-------|------|
-| 0 | JD embedding (1) | text-embedding-3-large | $0.0001 |
-| 0 | CV embeddings (100) | text-embedding-3-large | $0.013 |
-| 1A | JD extraction | gpt-4o | $0.01 |
-| 1B | CV extraction (50) | gpt-4o-mini | $2-3 |
+| 0 | JD embedding (~500 tokens) | text-embedding-3-large | $0.000065 |
+| 0 | CV embeddings (100 × ~500 tokens) | text-embedding-3-large | $0.0065 |
+| 1A | JD extraction (~500 in + 200 out) | gpt-4o | $0.003 |
+| 1B | CV extraction (50 CVs, ~40K in + 20K out) | gpt-4o-mini | $0.018 |
 | 2 | Scoring | Python | $0 |
-| 3 | Advanced (5) | gpt-4o-mini | $1-2 |
-| **TOTAL** | | | **~$3-5** |
+| 3 | Advanced (5 CVs, ~5K in + 3K out) | gpt-4o-mini | $0.015 |
+| **TOTAL** | | | **~$0.043** |
+
+**Real Example (41 CVs):** Stage 1A=$0.0044 + Stage 1B=$0.0123 = **$0.0167 total**
 
 ### **Scenario 2: Second Request (Same JD, Same CVs)**
 | Stage | Activity | Model | Cost |
 |-------|----------|-------|------|
 | 0 | JD embedding (cache HIT) | - | $0 |
 | 0 | CV embeddings (cache HIT) | - | $0 |
-| 1A | JD extraction | gpt-4o | $0.01 |
+| 1A | JD extraction | gpt-4o | $0.003 |
 | 1B | CV extraction (cache HIT) | - | $0 |
 | 2 | Scoring | Python | $0 |
 | 3 | Advanced (cache HIT) | - | $0 |
-| **TOTAL** | | | **~$0.01** |
+| **TOTAL** | | | **~$0.003** |
 
-**Savings: 99.7%!** 🎉
+**Savings: 93%!** 🎉
 
 ### **Scenario 3: Different JD, Same CVs**
 | Stage | Activity | Model | Cost |
-|-------|----------|-------|------|
-| 0 | JD embedding (new) | text-embedding-3-large | $0.0001 |
+|-------|----------|-------|------|  
+| 0 | JD embedding (new) | text-embedding-3-large | $0.000065 |
 | 0 | CV embeddings (cache HIT) | - | $0 |
-| 1A | JD extraction | gpt-4o | $0.01 |
-| 1B | CV extraction (MISS - jd_hash changed!) | gpt-4o-mini | $2-3 |
+| 1A | JD extraction | gpt-4o | $0.003 |
+| 1B | CV extraction (MISS - jd_hash changed!) | gpt-4o-mini | $0.018 |
 | 2 | Scoring | Python | $0 |
-| 3 | Advanced (MISS - jd_hash changed!) | gpt-4o-mini | $1-2 |
-| **TOTAL** | | | **~$3-5** |
+| 3 | Advanced (MISS - jd_hash changed!) | gpt-4o-mini | $0.015 |
+| **TOTAL** | | | **~$0.036** |
 
 ⚠️ **Problem**: CV extraction cache depends on `jd_hash` → JD changes → Cache MISS!
 
@@ -832,7 +835,7 @@ doc_id = f"cv_{cv_hash[:16]}_{jd_hash[:16]}"
 - JD changes from "2+ years" → "3+ years"
 - `jd_hash` changes
 - **Cache MISS** for all 50 CVs
-- Must extract again → Costs $2-3
+- Must extract again → Costs $0.018
 
 **Trade-offs:**
 
@@ -881,7 +884,7 @@ Complex nested JSON structure (cv_presentation_comment object with 5 fields) + l
 
 **Trade-offs:**
 - ✅ Pros: Stable JSON parsing, complete responses
-- ❌ Cons: 5x more API calls (5 CVs = 5 batches), slower by ~10-15s
+- ❌ Cons: 5x more API calls (5 CVs = 5 batches), but still fast (~7-10s total)
 
 ### **Issue 4: Prompt Size Optimization**
 
@@ -926,21 +929,21 @@ PRE_FILTER_THRESHOLD = 50
 | Stage | Time | Notes |
 |-------|------|-------|
 | Stage 0 | ~30-60s | CV embeddings (41 calls) |
-| Stage 1A | ~2-5s | JD extraction (1 call) |
-| Stage 1B | ~60-120s | CV extraction (8-9 batches × 5 CVs) |
+| Stage 1A | ~3-5s | JD extraction (1 call) |
+| Stage 1B | ~300-350s | CV extraction (41 CVs, batched) |
 | Stage 2 | < 0.1s | Pure Python |
-| Stage 3 | ~15-25s | Advanced features (5 batches × 1 CV, 3-5s each) |
-| **TOTAL** | **~110-215s** | **1.8-3.6 minutes** |
+| Stage 3 | ~7-10s | Advanced features (5 batches × 1 CV, ~1.5s each) |
+| **TOTAL** | **~340-425s** | **5.7-7.1 minutes** |
 
 ### **Processing Time** (41 CVs, Cache HIT)
 | Stage | Time | Notes |
 |-------|------|-------|
 | Stage 0 | ~1s | Cache lookup |
-| Stage 1A | ~2-5s | JD extraction (1 call) |
+| Stage 1A | ~3-5s | JD extraction (1 call) |
 | Stage 1B | ~1s | Cache lookup |
 | Stage 2 | < 0.1s | Pure Python |
 | Stage 3 | ~1s | Cache lookup |
-| **TOTAL** | **~3-5s** | **97% faster!** |
+| **TOTAL** | **~5-8s** | **~98% faster!** |
 
 ---
 
