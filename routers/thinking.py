@@ -6,9 +6,10 @@ import re
 import time
 import hashlib
 from pathlib import Path
-from typing import List, Dict, Optional
+from typing import List, Dict, Optional, Tuple
 from fastapi import APIRouter, HTTPException, status, Request
 from openai import OpenAI
+import tiktoken
 from db.database import get_all_files
 from config import CV_DIRECTORY, OPENAI_API_KEY, OPENAI_MODEL, OPENAI_MINI_MODEL, OPENAI_EMBEDDING_MODEL, PROMPT_LANGUAGE
 from prompts import get_cv_matching_prompt, get_system_message, format_cv_contents, get_extraction_prompt, get_cv_extraction_prompt, get_stage3_advanced_prompt
@@ -151,6 +152,107 @@ class CVScoringEngine:
             desc += f" Has {nice_matched}/{nice_total} nice-to-have skills."
         
         return desc
+
+
+def calculate_optimal_batch_size(
+    cvs: List[Dict], 
+    requirements: Dict,
+    max_tokens: int = 120000,
+    model: str = "gpt-4o-mini"
+) -> List[List[Dict]]:
+    """
+    Chia CVs thành batches dựa trên token count, không phải số lượng cố định
+    
+    Args:
+        cvs: List of CV objects with 'content' field
+        requirements: JD requirements (to calculate prompt overhead)
+        max_tokens: Maximum tokens per batch (default: 120K for gpt-4o-mini)
+        model: Model name for token encoding
+        
+    Returns:
+        List[List[Dict]]: List of batches, mỗi batch là list CVs
+    """
+    try:
+        # Get encoder for model
+        try:
+            encoder = tiktoken.encoding_for_model(model)
+        except KeyError:
+            # Fallback to cl100k_base encoding (for gpt-4o-mini/gpt-4o)
+            encoder = tiktoken.get_encoding("cl100k_base")
+        
+        # Calculate overhead tokens (system prompt + requirements prompt)
+        system_prompt = "You are a CV analysis expert. Return EXACTLY the JSON as requested."
+        requirements_text = json.dumps(requirements)
+        overhead_tokens = len(encoder.encode(system_prompt)) + len(encoder.encode(requirements_text))
+        
+        # Reserve tokens for system + requirements + output
+        RESERVED_TOKENS = overhead_tokens + 5000  # Extra 5K for output
+        max_batch_tokens = max_tokens - RESERVED_TOKENS
+        
+        logger.info(f"📊 Dynamic Batching Config:")
+        logger.info(f"   Model: {model}")
+        logger.info(f"   Max tokens per batch: {max_tokens}")
+        logger.info(f"   Overhead tokens: {overhead_tokens} (system + requirements)")
+        logger.info(f"   Reserved for output: 5000")
+        logger.info(f"   Available for CVs: {max_batch_tokens}")
+        
+        batches = []
+        current_batch = []
+        current_tokens = 0
+        
+        for cv in cvs:
+            cv_content = cv.get('content', '')
+            cv_tokens = len(encoder.encode(cv_content))
+            
+            # Nếu CV này vượt quá max_batch_tokens (CV quá dài)
+            if cv_tokens > max_batch_tokens:
+                logger.warning(
+                    f"⚠️  CV {cv.get('filename', 'unknown')} có {cv_tokens} tokens, "
+                    f"vượt quá max_batch_tokens ({max_batch_tokens}). Sẽ xử lý riêng."
+                )
+                # Nếu current_batch có data, lưu lại trước
+                if current_batch:
+                    batches.append(current_batch)
+                    current_batch = []
+                    current_tokens = 0
+                # Thêm CV này vào batch riêng
+                batches.append([cv])
+                continue
+            
+            # Nếu thêm CV này vào batch vượt limit → tạo batch mới
+            if current_tokens + cv_tokens > max_batch_tokens and current_batch:
+                batches.append(current_batch)
+                logger.info(
+                    f"   ✓ Batch {len(batches)}: {len(current_batch)} CVs, "
+                    f"{current_tokens:,} tokens"
+                )
+                current_batch = []
+                current_tokens = 0
+            
+            current_batch.append(cv)
+            current_tokens += cv_tokens
+        
+        # Add remaining CVs
+        if current_batch:
+            batches.append(current_batch)
+            logger.info(
+                f"   ✓ Batch {len(batches)}: {len(current_batch)} CVs, "
+                f"{current_tokens:,} tokens"
+            )
+        
+        logger.info(f"📦 Dynamic Batching Result:")
+        logger.info(f"   Total CVs: {len(cvs)}")
+        logger.info(f"   Total Batches: {len(batches)}")
+        logger.info(f"   Avg CVs per batch: {len(cvs) / len(batches):.1f}")
+        
+        return batches
+        
+    except Exception as e:
+        logger.error(f"Error in calculate_optimal_batch_size: {e}")
+        logger.warning("Fallback to fixed batch size of 5")
+        # Fallback: batch size = 5
+        FALLBACK_BATCH_SIZE = 5
+        return [cvs[i:i + FALLBACK_BATCH_SIZE] for i in range(0, len(cvs), FALLBACK_BATCH_SIZE)]
 
 
 def extract_text_from_pdf(file_path: Path) -> str:
@@ -760,12 +862,17 @@ async def thinking_dump(request: Request):
         logger.info(f"JD text (first 200 chars): {jd_text[:200]}...")
         logger.info(f"JD text (last 100 chars): ...{jd_text[-100:]}")
         
-        # Split CVs into batches to optimize cost and avoid truncation
-        # gpt-4o-mini output shorter than gpt-4o → can increase batch size
-        BATCH_SIZE = 7  # Sweet spot: both economical (6 batches vs 8) and safe
-        cv_batches = [cv_data_list[i:i + BATCH_SIZE] for i in range(0, len(cv_data_list), BATCH_SIZE)]
+        # Split CVs into batches using DYNAMIC batching (token-based)
+        # Automatically calculates optimal batch size based on CV content length
+        logger.info(f"🔄 Using DYNAMIC BATCHING (token-based) for {len(cv_data_list)} CVs...")
+        cv_batches = calculate_optimal_batch_size(
+            cvs=cv_data_list,
+            requirements=requirements,
+            max_tokens=120000,  # gpt-4o-mini context window
+            model=OPENAI_MINI_MODEL
+        )
         
-        logger.info(f"Splitting {len(cv_data_list)} CVs into {len(cv_batches)} batch(es) ({BATCH_SIZE} CVs/batch)")
+        logger.info(f"✓ Split {len(cv_data_list)} CVs into {len(cv_batches)} dynamic batch(es)")
         
         try:
             # Process each batch

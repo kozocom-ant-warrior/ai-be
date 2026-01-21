@@ -356,13 +356,30 @@ Return JSON:
 
 ### **Process**
 
-#### 1. **Batch Processing**
+#### 1. **Batch Processing (Dynamic Token-based)**
 ```python
-BATCH_SIZE = 5  # Process 5 CVs per API call
+# DYNAMIC BATCHING - Automatically calculates optimal batch size
+# Based on token count, not fixed number of CVs
+batches = calculate_optimal_batch_size(
+    cvs=cv_data_list,
+    requirements=requirements,
+    max_tokens=120000,  # gpt-4o-mini context window
+    model="gpt-4o-mini"
+)
 
-# Split 50 CVs into 10 batches
-batches = [cv_data_list[i:i+BATCH_SIZE] for i in range(0, len(cv_data_list), BATCH_SIZE)]
+# Example output:
+# 50 CVs → 5-7 batches (depending on CV length)
+# Batch 1: 10 CVs (95,000 tokens)
+# Batch 2: 8 CVs (98,000 tokens)
+# Batch 3: 12 CVs (110,000 tokens)
+# ...
 ```
+
+**Why Dynamic Batching?**
+- ✅ **Tối ưu chi phí**: Batch lớn hơn → ít API calls → giảm overhead
+- ✅ **Tránh timeout**: CV dài tự động vào batch nhỏ hơn
+- ✅ **Maximize throughput**: Sử dụng tối đa token limit
+- ✅ **Adaptive**: Tự động điều chỉnh theo độ dài CV
 
 #### 2. **Cache Check (Per CV)**
 ```python
